@@ -2039,6 +2039,66 @@ fbm.covariance(s: float, t: float) -> float
 
 ---
 
+### SemiMarkovProcess
+
+```python
+from spxa.zoo.beyond import SemiMarkovProcess
+
+SemiMarkovProcess(
+    transition_matrix,
+    holding_time_distributions=None,
+    holding_time_parameters=None,
+    *,
+    transition_holding_time_distributions=None,
+    initial_state=0,
+)
+```
+
+Finite-state semi-Markov process with a row-stochastic transition matrix `P`. The next state is selected according to the transition probabilities, and the holding time follows a specified distribution.
+
+Unlike a continuous-time Markov chain, a semi-Markov process supports non-exponential holding times. The holding-time distribution can depend on the current state or on the transition `(i, j)`.
+
+| Parameter | Constraint | Meaning |
+|---|---|---|
+| `transition_matrix` | Square, row-stochastic | Transition probability matrix `P` |
+| `holding_time_distributions` | Optional | State-dependent holding-time distributions |
+| `holding_time_parameters` | Required with state-dependent distributions | Parameters for the holding-time distributions |
+| `transition_holding_time_distributions` | Alternative configuration | Maps transition `(i, j)` to its holding-time distribution and parameters |
+| `initial_state` | Valid state index | Initial state; defaults to `0` |
+
+The `*` means that `transition_holding_time_distributions` and `initial_state` must be passed as keyword arguments. The state-dependent arguments must be provided together. The state-dependent and transition-dependent configurations cannot be mixed.
+
+Supported holding-time distributions are exponential (`rate`), Weibull (`shape`, `scale`), and Gamma (`shape`, `scale`). All distribution parameters must be strictly positive and finite.
+
+**Extra methods:**
+
+```python
+process.simulate_events(
+    T: float = 1.0,
+    *,
+    rng=None,
+    max_transitions: int = 1_000_000,
+) -> SemiMarkovEvents
+
+process.simulate(
+    n_steps: int,
+    n_paths: int = 1,
+    T: float = 1.0,
+    rng=None,
+) -> np.ndarray
+```
+
+- `simulate_events(T, ...)` returns transition times, visited states (including the initial state), and the simulation horizon.
+- `simulate(n_steps, n_paths, T, rng)` returns state paths on an evenly spaced time grid, with shape `(n_paths, n_steps + 1)`.
+- `rng` accepts a NumPy `Generator` for reproducible simulation.
+- Events occurring exactly at the simulation horizon are included.
+- `max_transitions` limits simulation work and may raise `RuntimeError` if another transition is required within the requested horizon after the limit is reached.
+
+**Properties:** Simulation-only process. Does not provide analytical moments or a Lévy triplet. It is generally not a Lévy process or subordinator; an absorbing process starting at zero is a constant-zero subordinator.
+
+**Reference:** Pyke (1961), “Markov Renewal Processes: Definitions and Preliminary Properties,” *The Annals of Mathematical Statistics*, 32(4), 1231–1242.
+---
+
 ### HawkesProcess
 
 ```python

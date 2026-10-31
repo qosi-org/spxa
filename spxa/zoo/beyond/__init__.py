@@ -230,6 +230,7 @@ from spxa.zoo.beyond.quadratic_rough_heston import (
 )
 
 from .mmpp import MarkovModulatedPoissonProcess
+from spxa.zoo.beyond.semi_markov import SemiMarkovProcess
 from spxa.zoo.beyond.four_two import FourTwoModel, FourTwoProcess, Grasselli42
 from spxa.zoo.beyond.shifted_sabr import FreeBoundarySABR, ShiftedSABRProcess
 from spxa.zoo.beyond.zumbach import ZumbachFeedbackProcess, ZumbachProcess
@@ -464,6 +465,7 @@ __all__ = [
     "Vasicek",
     "VasicekProcess",
     "MarkovModulatedPoissonProcess",
+    "SemiMarkovProcess",
     "FourTwoProcess",
     "FourTwoModel",
     "Grasselli42",
