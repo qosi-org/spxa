@@ -381,6 +381,27 @@ class Process(ABC):
 
         return morph(self, other, alpha=alpha, method=method, coupling=coupling, **kwargs)
 
+    def to_pde(self, **kwargs: Any) -> Any:
+        r"""
+        Pricing / Kolmogorov equation of this process.
+
+        Delegates to :func:`spxa.pde.to_pde`. Diffusions (Brownian motion,
+        Ornstein–Uhlenbeck, CIR, CEV) give a
+        :class:`~spxa.pde.generator.DiffusionPDE` for the backward equation
+        :math:`u_\tau = \mathcal{A}u` and its Fokker–Planck adjoint; Lévy
+        processes with jumps give the exponential-Lévy pricing PIDE
+        :class:`~spxa.pde.pide.LevyPIDE` and require ``r`` (and optionally
+        ``q``).
+
+        Raises
+        ------
+        NotImplementedError
+            When no PDE representation is registered for this process.
+        """
+        from spxa.pde.generator import to_pde
+
+        return to_pde(self, **kwargs)
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}(exactness={self._exactness.name})"
 

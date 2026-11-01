@@ -112,3 +112,70 @@ def test_nig_simulate_variance() -> None:
     paths = nig.simulate(n_steps=50, n_paths=30_000, T=1.0, rng=rng)
     empirical_var = paths[:, -1].var()
     assert empirical_var == pytest.approx(expected_var, rel=0.05)
+
+
+@pytest.mark.exactness
+def test_nig_levy_density_reproduces_cumulants() -> None:
+    """
+    The Lévy density k(x) = αδ/π · K_1(α|x|)/|x| · e^{βx} must reproduce the
+    cumulants of L_1: κ_2 = ∫x² k(x) dx = δα²/γ³ and
+    log E[e^{L_1}] - μ = ∫(e^x - 1) k(x) dx = δ(γ - √(α² - (β+1)²)).
+    Barndorff-Nielsen (1997), equations (2.4) and (2.2).
+    """
+    from scipy.integrate import quad
+
+    alpha, beta, delta = 15.0, -5.0, 0.5
+    nu = NIG(alpha=alpha, beta=beta, delta=delta).triplet.nu
+
+    def k(x: float) -> float:
+        return float(nu.density(np.array([x]))[0])
+
+    gamma = np.sqrt(alpha**2 - beta**2)
+    m2 = (
+        quad(lambda x: x * x * k(x), -np.inf, 0.0)[0] + quad(lambda x: x * x * k(x), 0.0, np.inf)[0]
+    )
+    assert m2 == pytest.approx(delta * alpha**2 / gamma**3, rel=1e-8)
+    expm = quad(lambda x: np.expm1(x) * k(x), -np.inf, 0.0, limit=200)[0]
+    expm += quad(lambda x: np.expm1(x) * k(x), 0.0, np.inf, limit=200)[0]
+    assert expm == pytest.approx(delta * (gamma - np.sqrt(alpha**2 - (beta + 1) ** 2)), rel=1e-7)
+
+
+@pytest.mark.exactness
+def test_nig_triplet_matches_char_func() -> None:
+    """
+    The triplet (b, 0, ν) must reproduce the NIG characteristic exponent
+    iμu + δ(γ - √(α² - (β + iu)²)) (Barndorff-Nielsen, 1997) through the
+    Lévy–Khintchine formula with truncation 𝟙_{|x|≤1}.
+    """
+    from scipy.integrate import quad
+
+    nig = NIG(alpha=15.0, beta=-5.0, delta=0.5, mu=0.02)
+    tr = nig.triplet
+
+    def k(x: float) -> float:
+        return float(tr.nu.density(np.array([x]))[0])
+
+    for u in (1.0, 5.0):
+        re = im = 0.0
+        for a, b in ((-np.inf, -1.0), (-1.0, 0.0), (0.0, 1.0), (1.0, np.inf)):
+            small = np.isfinite(a) and np.isfinite(b)
+            re += quad(lambda x: (np.cos(u * x) - 1.0) * k(x), a, b, limit=400)[0]
+            im += quad(
+                lambda x: (np.sin(u * x) - (u * x if small else 0.0)) * k(x), a, b, limit=400
+            )[0]
+        expected = complex(np.log(complex(nig.char_func(u, t=1.0))))
+        assert re == pytest.approx(expected.real, abs=1e-8)
+        assert u * tr.b + im == pytest.approx(expected.imag, abs=1e-8)
+
+
+@pytest.mark.exactness
+def test_nig_tail_is_integral_of_density() -> None:
+    """ν((x, ∞)) must equal the integral of the Lévy density over (x, ∞)."""
+    from scipy.integrate import quad
+
+    nu = NIG(alpha=15.0, beta=-5.0, delta=0.5).triplet.nu
+    for x in (0.05, 0.3):
+        expected = quad(lambda t: float(nu.density(np.array([t]))[0]), x, np.inf)[0]
+        assert nu.tail(x) == pytest.approx(expected, rel=1e-10)
+    # α|x| K_1(α|x|) → 1 as x → 0, so ν((x, ∞)) ~ δ/(π x)
+    assert nu.tail(1e-4) * 1e-4 == pytest.approx(0.5 / np.pi, rel=1e-2)

@@ -314,3 +314,47 @@ class TestKouExactness:
 
         assert paths.shape == (100, 26)
         assert np.all(paths[:, 0] == 0.0)
+
+
+class TestKouClosedFormCharFunc:
+    """char_func is evaluated in closed form, including at complex arguments."""
+
+    kou = KouJumpDiffusion(drift=0.03, sigma=0.16, rate=1.0, p=0.4, eta1=10.0, eta2=5.0)
+
+    def test_matches_characteristic_function(self) -> None:
+        for u in (0.0, 0.7, -2.5, 13.0, 0.3 - 0.8j):
+            for t in (0.25, 1.0, 3.0):
+                assert self.kou.char_func(u, t=t) == pytest.approx(
+                    self.kou.characteristic_function(u, t), rel=1e-13, abs=1e-15
+                )
+
+    def test_vectorised(self) -> None:
+        u = np.linspace(-20.0, 20.0, 41)
+        phi = self.kou.char_func(u, t=0.5)
+        assert phi.shape == u.shape
+        expected = [self.kou.characteristic_function(x, 0.5) for x in u]
+        assert np.allclose(phi, expected, rtol=1e-13, atol=1e-15)
+        assert np.allclose(self.kou.char_func(-u, t=0.5), np.conj(phi), rtol=1e-13, atol=1e-15)
+
+    def test_exponential_moment(self) -> None:
+        """E[exp(X_t)] = exp(t (mu + sigma^2/2 + lam (p eta1/(eta1-1) + q eta2/(eta2+1) - 1)))."""
+        k = self.kou
+        psi = (
+            k.drift
+            + 0.5 * k.sigma**2
+            + k.rate * (k.p * k.eta1 / (k.eta1 - 1) + k.q * k.eta2 / (k.eta2 + 1) - 1)
+        )
+        value = k.char_func(-1j, t=2.0)
+        assert abs(value.imag) < 1e-14
+        assert value.real == pytest.approx(math.exp(2.0 * psi), rel=1e-13)
+
+    def test_cumulants_from_char_func(self) -> None:
+        """Numerical derivatives of log phi reproduce the exact first two cumulants."""
+        h = 1e-4
+        k = self.kou
+        lp = [np.log(k.char_func(x, t=1.0)) for x in (-h, 0.0, h)]
+        k1 = ((lp[2] - lp[0]) / (2j * h)).real
+        k2 = (-(lp[2] - 2 * lp[1] + lp[0]) / h**2).real
+        cum = k.cumulants(order=2)
+        assert k1 == pytest.approx(cum[1], rel=1e-7)
+        assert k2 == pytest.approx(cum[2], rel=1e-6)

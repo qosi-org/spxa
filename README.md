@@ -30,6 +30,7 @@
   - [5. Rough Volatility: rBergomi & Fractional Riccati Solver](#5-rough-volatility-rbergomi--fractional-riccati-solver)
   - [6. High-Frequency Market Making & Inventory Control](#6-high-frequency-market-making--inventory-control)
   - [7. Model Morphing](#7-model-morphing)
+  - [8. PDE & PIDE Solvers](#8-pde--pide-solvers)
 - [Computational Graph Architecture & Duality Engine](#computational-graph-architecture--duality-engine)
 - [Exactness Guarantees & Mathematical Integrity](#exactness-guarantees--mathematical-integrity)
 - [Subpackage Ecosystem](#subpackage-ecosystem)
@@ -77,7 +78,8 @@ When an operation crosses the boundary of the Lévy realm (e.g. state-dependent 
 5. **Rough Paths & Tensor Signatures (`spxa.signature`, `spxa.graph.signature`)**: Non-parametric path representation capturing the order of market events. Provides truncated tensor signatures, shuffle product identities, log-signature Lie algebra dimension compression, an infinite-order 2D hyperbolic Goursat PDE kernel solver, and linear regression option pricing.
 6. **Rough Volatility & Volterra Calculus (`spxa.rough`, `spxa.graph.rough`)**: Non-Markovian, sub-diffusive stochastic volatility models driven by fractional Brownian motion with Hurst index $H \in (0, 1/2)$. Features Riemann–Liouville singular power kernels, Bennedsen–Lunde–Pakkanen hybrid convolutions, rough Bergomi (rBergomi) with power-law short-time skew blow-up, and fractional Adams–Bashforth–Moulton Riccati solvers.
 7. **Model Morphing (`spxa.morph`, `spxa.graph.morph`)**: Continuous interpolation between any two processes along a chosen geometry. The triplet homotopy $\psi_\alpha = (1-\alpha)\psi_0 + \alpha\psi_1$ stays inside the Lévy class and keeps `EXACT` exactness. Generator, Fisher–Rao geodesic and Wasserstein (displacement) morphs cover diffusions and Gaussian marginals. Dynamic schedules (linear, cosine, smoothstep, sigmoidal, state-threshold) drive regime transitions inside a simulation, and `ModelBarycenter`, `ModelEnsemble` and `SurfaceMorphEngine` average models and volatility surfaces.
-8. **Comprehensive Quantitative Toolchain**:
+8. **PDE & PIDE Solvers (`spxa.pde`, `spxa.graph.pde`)**: Verified finite-difference pricing for the generators of the zoo. Sinh-stretched grids aligned to strikes and barriers, Crank–Nicolson with Rannacher start-up, and penalty, PSOR, Brennan–Schwartz and Ikonen–Toivanen solvers for early exercise. Covers Black–Scholes (American, Bermudan, barriers, discrete dividends), Dupire local volatility, Večeř Asian options, short-rate bond options, mass-conserving Fokker–Planck densities, exponential-Lévy PIDEs (Merton, Kou, VG, CGMY, NIG) with moment-matched small jumps, and Douglas, Craig–Sneyd, modified Craig–Sneyd and Hundsdorfer–Verwer ADI for Heston and two-asset options. Least-squares Monte Carlo is included as a cross-check. Each scheme's convergence order is tested against closed forms or published references.
+9. **Comprehensive Quantitative Toolchain**:
    - **Stochastic Optimal Control (`spxa.control`)**: Merton portfolio problems, Avellaneda–Stoikov high-frequency market making, Almgren–Chriss optimal liquidation, and finite-difference Hamilton–Jacobi–Bellman (HJB) viscosity solvers.
    - **Econometric Calibration & Filtering (`spxa.calibration`)**: Volatility surface calibrators, maximum likelihood (MLE), GMM, Kalman and Particle state-space filters, Godambe sandwich standard errors, and surface arbitrage diagnostics.
    - **Copulas & Multi-Asset Dependence (`spxa.copula`)**: Archimedean (Clayton, Gumbel, Frank, Joe, AMH), Elliptic (Gaussian, Student-$t$), and Extreme Value copulas with tail dependence analysis.
@@ -272,6 +274,33 @@ print(mid.__story__())
 
 Other geometries are one keyword away: `method` accepts `"triplet"`, `"generator"`, `"geodesic"`, `"wasserstein"` and `"convex_combination"`. See [Theory: Model Morphing](docs/theory/model_morphing.md) for when each one is exact.
 
+### 8. PDE & PIDE Solvers
+
+Price an American put, a Heston call by ADI and a Merton put taken directly from the process zoo:
+
+```python
+from spxa.pde import BlackScholesPDE, HestonPDE
+from spxa.zoo.levy import MertonJumpDiffusion
+
+# 1. American put (Longstaff-Schwartz case): penalty LCP on Rannacher-smoothed Crank-Nicolson
+am = BlackScholesPDE(r=0.06, sigma=0.2).american(K=40.0, T=1.0, spot=36.0, option="put")
+print(round(am.price, 4), round(am.delta, 4))                 # 4.4863 -0.6969
+
+# 2. Heston (in 't Hout-Foulon case 1) by Hundsdorfer-Verwer ADI
+heston = HestonPDE(r=0.025, kappa=1.5, theta=0.04, sigma=0.3, rho=-0.9)
+res = heston.european(K=100.0, T=1.0, spot=100.0, v0=0.04, n_s=201, n_v=101, n_time=100)
+print(round(res.price, 4), round(res.delta, 4))               # 8.8941 0.6716  (Lewis: 8.8949)
+
+# 3. Exponential-Levy PIDE straight from a zoo process
+merton = MertonJumpDiffusion(drift=0.0, sigma=0.15, rate=0.1, jump_mean=-0.9, jump_std=0.45)
+put = merton.to_pde(r=0.05).european(K=100.0, T=0.25, spot=100.0, option="put")
+print(round(put.price, 4))                                    # 3.1489  (series: 3.1490)
+
+print(res.__story__())
+```
+
+`spxa.pde.pde_price` values `spxa.risk` instruments for stress testing, and `spxa.graph.pde` puts PDE prices into computational graphs. See [Theory: PDE and PIDE methods](docs/theory/pde.md).
+
 ---
 
 ## Computational Graph Architecture & Duality Engine
@@ -361,6 +390,7 @@ Unlike numerical libraries that silently approximate or introduce uncontrolled t
 | **Rough Paths** | `spxa.signature` | Path signatures, shuffle algebra, and PDE kernels | `PathSignature`, `SignatureAlgebra`, `SignatureKernel` |
 | **Rough Volatility** | `spxa.rough` | Fractional Brownian motion and Volterra calculus | `FractionalKernel`, `RoughBergomi`, `FractionalRiccatiSolver` |
 | **Model Morphing** | `spxa.morph` | Exact and geometric interpolation between processes, regime schedules, and barycenters | `MorphedProcess`, `DynamicMorphedProcess`, `CosineSchedule`, `ModelBarycenter`, `gaussian_rao_distance` |
+| **PDE & PIDE Solvers** | `spxa.pde` | Finite differences for pricing, densities, Lévy PIDEs and ADI | `BlackScholesPDE`, `HestonPDE`, `LevyPIDE`, `FokkerPlanck1D`, `ADISolver`, `pde_price` |
 | **Stochastic Control** | `spxa.control` | Portfolio optimization, market making, and HJB solvers | `MertonPortfolio`, `AvellanedaStoikov`, `AlmgrenChriss`, `HJBSolver` |
 | **Model Calibration** | `spxa.calibration` | Volatility surface calibration, MLE, GMM, and filtering | `HestonCalibrator`, `CIRMaximumLikelihood`, `UnscentedKalmanFilter`, `ParticleFilter`, `sandwich_covariance_matrix` |
 | **Copula & Dependence** | `spxa.copula` | Multi-asset dependence and extreme value copulas | `ClaytonCopula`, `GumbelCopula`, `GaussianCopula`, `CoupledProcess` |

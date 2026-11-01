@@ -4,6 +4,62 @@ All notable changes to spxa are documented here. Follows [Keep a Changelog](http
 
 ## [Unreleased]
 
+### Added
+
+- `pde/` — finite-difference PDE and PIDE solvers (`spxa.pde`, `spxa.graph.pde`). Every scheme is
+  covered by a convergence test against a closed form or a published reference. Contents:
+  - **Infrastructure.**
+    - Grids: uniform and sinh-stretched `Grid1D` with strikes, barriers and spots placed on nodes;
+      `TimeGrid` with calendar events.
+    - Boundary conditions: Dirichlet, Neumann, linear and natural.
+    - Operators and time stepping: second-order `DiscreteOperator1D` with automatic upwinding;
+      `ThetaSolver1D` (Crank–Nicolson with Rannacher start-up); payoff projection.
+    - Results: grid Greeks and `__story__()` summaries.
+  - **Early exercise.** `PenaltyLCP`, `PSORLCP`, `BrennanSchwartzLCP` and `IkonenToivanenLCP`, plus
+    `complementarity_residual` and recorded exercise boundaries.
+  - **One-factor pricers.**
+    - `BlackScholesPDE`: European, digital, American, Bermudan, single, double and discretely
+      monitored barriers, discrete dividends, local volatility, and bumped vega/rho.
+    - `DupirePDE` and `local_vol_from_prices`.
+    - `AsianPDE` (Večeř; continuous and discrete averages).
+    - `ShortRatePDE` (Vasicek/CIR bonds and European/American bond options).
+  - **Generators and densities.**
+    - `to_pde` and `Process.to_pde()`: diffusion generators and exponential-Lévy PIDEs.
+    - `FokkerPlanck1D`: a discrete-adjoint density solver that conserves mass to machine precision.
+  - **Lévy PIDEs.** `LevyJumpOperator` (cell-integrated large jumps, moment-matched small jumps,
+    FFT convolution) and `LevyPIDE` for European and American options under Merton, Kou, VG, CGMY
+    and NIG.
+  - **Two-factor ADI.**
+    - Building blocks: `Grid2D`, `Dirichlet2D`/`Neumann2D`/`Natural2D`/`Linear2D`, `LinearPDE2D`,
+      `DiscreteOperator2D`.
+    - `ADISolver`: Douglas, Craig–Sneyd, modified Craig–Sneyd and Hundsdorfer–Verwer, with damping
+      steps and Ikonen–Toivanen early exercise.
+    - `HestonPDE`: European and American, with Greeks and vega.
+    - `TwoAssetBlackScholesPDE`: exchange, spread, best-of and worst-of options, European or American.
+  - **Cross-checks and bridges.**
+    - `longstaff_schwartz` and `lsm_american`: two-pass least-squares Monte Carlo.
+    - `pde_price` and `pde_pricing_fn`: price `spxa.risk` instruments and feed `StressTestingEngine`.
+    - `spxa.graph.pde.bs_pde_price_node` and `heston_pde_price_node`: graph nodes whose
+      vector–Jacobian products use the grid Greeks.
+  - **Verification.**
+    - Convergence tools: `convergence_study`, `observed_order` and `richardson_extrapolate`.
+    - Closed-form references in `spxa.pde.reference`: Black–Scholes, Reiner–Rubinstein, binomial
+      trees, perpetual put, Lewis with Heston/Lévy characteristic functions, Merton series,
+      Vasicek/CIR bonds and options, Margrabe, spread options.
+  - **Documentation.** See `docs/theory/pde.md` and section 19 of the API reference.
+
+### Fixed
+
+- `zoo.levy.CGMY`: the Lévy density, total mass, tail and drift now temper upward jumps with $M$ and
+  downward jumps with $G$, as the characteristic exponent does; previously they described the
+  mirror-image process. For $1 \le Y < 2$ the drift now includes the $-\int_{|x|>1} x\,\nu(dx)$
+  correction. The first cumulant is no longer rejected as nonexistent when $\Gamma(1-Y)$ is finite.
+- `zoo.levy.NIG`: the triplet drift and tail integrated the NIG probability density instead of the
+  Lévy density. The drift now follows from $\mathbb{E}[X_1] = \mu + \delta\beta/\gamma$, and the tail
+  integrates the Lévy density.
+- `zoo.levy.KouJumpDiffusion`: `char_func` now uses the closed-form exponent. The inherited numerical
+  Lévy–Khintchine integral returned `nan` at complex arguments such as $u = -i$.
+
 ## [1.0.1] — 2026-10-30
 
 ### Added

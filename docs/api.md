@@ -160,6 +160,15 @@ the running library. All signatures are exact.
    - [Fractional Kernels & Hybrid Convolution](#fractional-kernels--hybrid-convolution)
    - [Rough Bergomi (rBergomi) Model & Short-Time Skew](#rough-bergomi-rbergomi-model--short-time-skew)
    - [Fractional Adams-Bashforth-Moulton Riccati Solver](#fractional-adams-bashforth-moulton-riccati-solver)
+18. [Model Morphing Framework (`spxa.morph`)](#model-morphing-framework-spxamorph)
+19. [PDE & PIDE Solvers (`spxa.pde`, `spxa.graph.pde`)](#pde-pide-solvers-spxapde-spxagraphpde)
+   - [Grids, Operators & Time Stepping](#grids-operators-time-stepping)
+   - [Early Exercise](#early-exercise)
+   - [One-Factor Pricers](#one-factor-pricers)
+   - [Generators, Densities & Lévy PIDEs](#generators-densities-levy-pides)
+   - [Two-Factor ADI](#two-factor-adi)
+   - [Monte Carlo, Risk & Graph Bridges](#monte-carlo-risk-graph-bridges)
+   - [Verification & References](#verification-references)
 
 ---
 
@@ -5029,6 +5038,84 @@ The `spxa.morph` package provides a rigorous, first-class mathematical framework
 - `plot_morph_surface(morphed_surface, k_grid, t_grid)`: 3D interactive implied volatility surface rendering.
 - `plot_geodesic_phase_portrait(mu0, sig0, mu1, sig1)`: Phase-space hyperbolic Riemannian geodesic trajectory.
 
+---
 
+## PDE & PIDE Solvers (`spxa.pde`, `spxa.graph.pde`)
 
+Finite-difference solvers for pricing equations, transition densities and exponential Lévy PIDEs. Every scheme is covered by a convergence test against a closed form or a published reference. The theory is in [PDE and PIDE methods](theory/pde.md). All objects below can be imported from `spxa.pde`, which is also available lazily as `spxa.pde`.
 
+### Grids, Operators & Time Stepping
+- `Grid1D.uniform(lo, hi, n_nodes)` and `Grid1D.sinh(lo, hi, n_nodes, center, alpha=None, align_center=True, align=())`: uniform grid, or sinh-stretched grid clustered at `center`. Points in `align` are placed exactly on nodes. Methods include `refine()`, `locate(x)` and `interpolate(values, x)`.
+- `TimeGrid.uniform(maturity, n_steps, event_taus=())` and `TimeGrid.from_calendar_events(...)`: time grids in $\tau = T - t$ that include event times.
+- Boundary conditions:
+  - `Dirichlet(value)`: $u = g$.
+  - `Neumann(value)`: $u_x = g$.
+  - `Linear()`: $u_{xx} = 0$.
+  - `Natural()`: the equation itself, with one-sided derivatives.
+
+  Values can be scalars or functions of $\tau$.
+- `LinearPDE1D(...)` and `DiscreteOperator1D(pde, grid, left, right, convection_scheme="auto")` (or `"central"`, `"upwind"`): the equation $u_\tau = a u_{xx} + b u_x + c u + f$ and its second-order discretisation.
+- `ThetaSolver1D(operator, theta=0.5, rannacher_steps=2, rannacher_after_events=True)`: θ-scheme with Rannacher start-up. `.solve(...)` returns a `ThetaResult`.
+- `Payoff(fn, kinks, name)` with `vanilla(K, option)`, `digital(...)` and `asset_or_nothing(...)`. `project_payoff(payoff, grid, method="average"|"kink"|"none")` returns cell averages around kinks.
+- `PDESolution1D` stores nodal values and provides `.value(s)`, `.greeks(s)` (value, delta, gamma, theta) and `.__story__()`. `PDEPricingResult(price, delta, gamma, theta, spot, solution, vega, rho, exercise_boundary, method)`.
+
+### Early Exercise
+- Step-wise solvers for the linear complementarity problem:
+  - `PenaltyLCP(penalty=1e8, tol=1e-10, max_iter=100)`
+  - `PSORLCP(omega=1.5, tol=1e-10, max_iter=20000)`
+  - `BrennanSchwartzLCP(side="left")`
+  - `IkonenToivanenLCP()`
+
+  `make_lcp(method, side="left")` builds one by name. `complementarity_residual(...)` measures how well a solution satisfies the LCP.
+- `ExerciseBoundary(taus, locations, side)`: the early-exercise boundary recorded during the solve.
+
+### One-Factor Pricers
+- `BlackScholesPDE(r, sigma, q=0.0)`: `sigma` can be a constant or a local volatility `sigma(S, t)`. Methods:
+  - `european(K, T, spot, option="call", bump_greeks=False, **kw)`
+  - `american(K, T, spot, option="put", method="penalty", bump_greeks=False, **kw)`
+  - `bermudan(K, T, spot, exercise_times, option="put", **kw)`
+  - `digital(K, T, spot, option="call", cash=1.0, **kw)`
+  - `barrier(K, T, spot, barrier, barrier_type="down-and-out", option="call", rebate=0.0, rebate_timing="hit", american=False, method="penalty", **kw)`
+  - `double_barrier(K, T, spot, lower, upper, option="call", rebate=0.0, **kw)`
+  - `discrete_barrier(K, T, spot, barrier, monitoring_times, barrier_type="down-and-out", option="call", rebate=0.0, **kw)`
+
+  Keyword arguments (`n_space`, `n_time`, `s_max`, `dividends=[DiscreteDividend(time, amount, proportional)]`, ...) are passed on to `solve`.
+- `AsianPDE(r, sigma, q=0.0).price(K, T, spot, option="call", fixings=None, past_average=0.0, n_space=401, n_time=200, ...)`: Večeř's PDE for continuous or discrete arithmetic averages. `.call(...)` and `.put(...)` are shortcuts.
+- `ShortRatePDE(kappa, theta, sigma, model="vasicek"|"cir")`: methods `zero_coupon_bond(T, r0, ...)`, `coupon_bond(cashflows, r0, ...)` and `bond_option(K, T, S, r0, option="call", american=False, method="penalty", ...)`.
+- `DupirePDE(r, sigma, q=0.0).solve(spot, T, maturities=None, n_space=401, n_time=200, k_max=None, ...)`: returns a `DupireSurface` of call prices over strike and maturity. Also `local_vol_from_prices(strikes, maturities, prices, r, q=0.0)` and `implied_volatility(price, S, K, T, r, q=0.0, option="call", tol=1e-12)`.
+
+### Generators, Densities & Lévy PIDEs
+- `to_pde(process, **kwargs)` (also `Process.to_pde()`):
+  - For a registered diffusion, returns a `DiffusionPDE`.
+  - For an exponential Lévy model, returns `LevyPIDE.from_process(process, r=..., q=...)`. This raises `ValueError` without `r`.
+  - Raises `NotImplementedError` for unregistered processes.
+- `FokkerPlanck1D(drift, volatility, grid, convection_scheme="auto", time_homogeneous=None).solve(initial, T, n_time=200, ...)`: returns a `DensitySolution` with `.mass()`, `.mean()`, `.variance()`, `.expectation(g)`, `.pdf(x)` and `.cdf(x)`. The discrete adjoint $V^{-1}A^\top V$ conserves mass exactly.
+- `LevyJumpOperator(density, h, max_jump)`: discretised jump integral with moment-matched small jumps. It exposes `weights`, `intensity`, `compensator` and `apply(u, x, tau, far_left, far_right)`.
+- `LevyPIDE(r, q, sigma, density, name="Levy")`: constructors and methods `from_process(process, r, q=0.0)`, `european(K, T, spot, option="call", n_space=801, n_time=200, half_width=None, **kw)` and `american(K, T, spot, option="put", method="penalty", ...)`.
+
+### Two-Factor ADI
+- `Grid2D(x, y)`: tensor grid with C-ordered unknowns, index `i * ny + j`.
+- Edge conditions `Dirichlet2D(value)`, `Neumann2D(value)`, `Natural2D()` and `Linear2D()`. A value can be a scalar or a function `(coordinate along the edge, tau)`.
+- `LinearPDE2D(axx, axy, ayy, bx, by, c, f, time_homogeneous=None)`: checks that $a_{xx}, a_{yy} \ge 0$ and $a_{xy}^2 \le 4a_{xx}a_{yy}$.
+- `DiscreteOperator2D(pde, grid, edges, upwind="auto"|"none")`: edges are given as `{"x_lo", "x_hi", "y_lo", "y_hi"}`. `.split(tau)` returns the matrices `[A0, A1, A2]` and sources `[b0, b1, b2]`. `.apply(u, tau)` applies the operator.
+- `ADISolver(operator, scheme="hundsdorfer_verwer", theta=None, damping_steps=1)`: the scheme can be `douglas`, `craig_sneyd`, `modified_craig_sneyd` or `hundsdorfer_verwer` (aliases `do`, `cs`, `mcs`, `hv`). `.solve(initial, T, n_time=100, obstacle=None, store_history=False, callback=None)` returns an `ADIResult`. Passing an `obstacle` switches on the Ikonen–Toivanen splitting.
+- `PDESolution2D`: `.value(x, y)`, `.derivative(x, y, dx, dy)` and `.theta(x, y)`, using bicubic splines.
+- `HestonPDE(r, kappa, theta, sigma, rho, q=0.0)`: methods `european(K, T, spot, v0, option="call", n_s=101, n_v=51, n_time=100, scheme=..., s_max=None, v_max=None, damping_steps=1)` and `american(..., option="put")`. Both return a `HestonPDEResult` with price, delta, gamma, theta, `dv` ($u_v$) and `vega` ($2\sqrt{v_0}\,u_v$), plus `exercise_boundary` for American options. Also `from_process(heston_process, r, q=0.0)` and the `feller` property.
+- `TwoAssetBlackScholesPDE(r, sigma1, sigma2, rho, q1=0.0, q2=0.0)`: methods `price(payoff, T, s1, s2, n1=101, n2=101, n_time=100, american=False, ...)`, `exchange(T, s1, s2)`, `spread(K, T, s1, s2, option)`, `best_of(K, T, s1, s2)` and `worst_of(K, T, s1, s2)`. Each returns a `TwoAssetPDEResult` with `delta` and `gamma` tuples and `cross_gamma`.
+
+### Monte Carlo, Risk & Graph Bridges
+- `longstaff_schwartz(paths, times, payoff, r, degree=3, basis="laguerre"|"monomial", regression_paths=None, scale=1.0, itm_only=True, side=None)`: returns an `LSMResult` with price, `std_error`, `confidence_interval()`, `exercise_probability` and `boundary`. Pass `regression_paths` for the two-pass, low-biased estimator.
+- `gbm_paths(S0, r, sigma, T, n_steps, n_paths, q=0.0, seed=None, antithetic=True)` generates exact GBM paths. `lsm_american(K, T, spot, r, sigma, q=0.0, option="put", n_dates=50, n_paths=100_000, degree=3, basis="laguerre", seed=0, two_pass=True)` prices an American vanilla with LSM.
+- `pde_price(instrument, market, vega=False, vol_bump=1e-3, **solver_options)`: prices `spxa.risk` instruments: `EuropeanOption`, `BarrierOption`, `AsianOption` and two-asset `BasketOption`. The market dictionary holds spot, `<id>_VOL`, `<id>_DIV` and `r`. It returns a notional-scaled `PDEQuote`. `pde_pricing_fn(book, **kw)` returns a `market -> value` callable for `StressTestingEngine`. `supported_instruments()` lists the accepted types.
+- `spxa.graph.pde.bs_pde_price_node(spot, volatility, rate, *, strike, maturity, option="call", style="european"|"american", dividend=0.0, **solver_options)` and `heston_pde_price_node(spot, v0, kappa, theta, sigma, rho, rate, *, strike, maturity, ...)`: `OperatorNode`s whose vector–Jacobian products use the grid Greeks (spot, $v_0$) and bumps for the other inputs.
+
+### Verification & References
+- `convergence_study(solver, levels, reference=None, ratio=2.0, order=2.0)` returns a `ConvergenceStudy` (errors, observed orders, Richardson value). Also available: `observed_order(errors, ratio=2.0)`, `observed_order_from_values(...)` and `richardson_extrapolate(coarse, fine, ratio=2.0, order=2.0)`.
+- `spxa.pde.reference`: closed forms used by the tests:
+  - Black–Scholes: `bs_price`, `bs_greeks`, `bs_digital_price`, `bs_asset_or_nothing_price`.
+  - Barriers: `barrier_price` (Reiner–Rubinstein), `double_barrier_price`.
+  - Trees and American bounds: `binomial_price` (CRR/Leisen–Reimer), `perpetual_american_put`, `perpetual_put_boundary`.
+  - Fourier: `lewis_call_price` with `bs_cf`, `heston_cf` and `levy_cf`.
+  - Jumps: `merton_price`.
+  - Short rate: `vasicek_bond`, `vasicek_bond_option`, `cir_bond`, `cir_bond_option`.
+  - Two assets: `margrabe_price`, `spread_option_price`.

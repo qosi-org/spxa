@@ -121,11 +121,66 @@ def test_cgmy_finite_variance_when_y_lt_2() -> None:
 
 
 @pytest.mark.exactness
-def test_cgmy_cumulant_order_below_y_raises() -> None:
+def test_cgmy_cumulant_singular_cases_raise() -> None:
     """
-    κ_n does not exist for n ≤ Y. cumulant_exact must raise ValueError.
-    Carr et al. (2002): Γ(n-Y) diverges when n ≤ Y.
+    The closed form κ_n = C Γ(n-Y)(M^{Y-n} + (-1)^n G^{Y-n}) is singular when
+    n - Y is a non-positive integer (Y = 1, n = 1), and moments of order
+    n ≥ Y are infinite without exponential tempering (G = 0 or M = 0).
+    Carr et al. (2002), equation (2).
     """
-    cgmy = CGMY(C=1.0, G=5.0, M=5.0, Y=1.5)
     with pytest.raises(ValueError, match="does not exist"):
-        cgmy.cumulant_exact(1)
+        CGMY(C=1.0, G=5.0, M=5.0, Y=1.0).cumulant_exact(1)
+    with pytest.raises(ValueError, match="does not exist"):
+        CGMY(C=1.0, G=0.0, M=5.0, Y=0.5).cumulant_exact(1)
+
+
+def _psi_from_triplet(cgmy: CGMY, u: float) -> complex:
+    """Lévy–Khintchine exponent from (b, 0, ν) with truncation 𝟙_{|x|≤1}."""
+    from scipy.integrate import quad
+
+    tr = cgmy.triplet
+
+    def k(x: float) -> float:
+        return float(tr.nu.density(np.array([x]))[0])
+
+    def part(f, a, b):  # type: ignore[no-untyped-def]
+        return quad(f, a, b, limit=400, epsabs=1e-13, epsrel=1e-11)[0]
+
+    re = im = 0.0
+    for a, b in ((-np.inf, -1.0), (-1.0, 0.0), (0.0, 1.0), (1.0, np.inf)):
+        small = abs(a) < 1.0 + 1e-12 and abs(b) < 1.0 + 1e-12
+        re += part(lambda x: (np.cos(u * x) - 1.0) * k(x), a, b)
+        im += part(lambda x: (np.sin(u * x) - (u * x if small else 0.0)) * k(x), a, b)
+    return complex(re, u * tr.b + im)
+
+
+@pytest.mark.exactness
+@pytest.mark.parametrize("Y", [0.5, 1.5])
+def test_cgmy_triplet_matches_char_func(Y: float) -> None:
+    """
+    The Lévy density k(x) = C e^{-M x}/x^{1+Y} (x > 0), C e^{-G|x|}/|x|^{1+Y}
+    (x < 0) and drift b must reproduce the characteristic exponent
+    C Γ(-Y)((M - iu)^Y - M^Y + (G + iu)^Y - G^Y) of Carr et al. (2002),
+    including its skew (G < M means heavier downward jumps).
+    """
+    cgmy = CGMY(C=0.3, G=4.0, M=9.0, Y=Y)
+    dens = cgmy.triplet.nu.density(np.array([-0.1, 0.1]))
+    assert dens[0] > dens[1]
+    for u in (0.7, 3.0):
+        expected = complex(np.log(complex(cgmy.char_func(u, t=1.0))))
+        got = _psi_from_triplet(cgmy, u)
+        assert got.real == pytest.approx(expected.real, abs=1e-8)
+        assert got.imag == pytest.approx(expected.imag, abs=1e-8)
+
+
+@pytest.mark.exactness
+def test_cgmy_first_cumulant_infinite_variation() -> None:
+    """κ_1 = C Γ(1-Y)(M^{Y-1} - G^{Y-1}) also holds for 1 < Y < 2 (Carr et al. 2002, eq. 2)."""
+    from scipy.special import gamma as gamma_fn
+
+    cgmy = CGMY(C=0.3, G=4.0, M=9.0, Y=1.5)
+    expected = 0.3 * float(gamma_fn(-0.5)) * (9.0**0.5 - 4.0**0.5)
+    assert cgmy.cumulant_exact(1) == pytest.approx(expected, rel=1e-12)
+    h = 1e-4
+    lc = [np.log(complex(cgmy.char_func(s * h, t=1.0))) for s in (-1, 1)]
+    assert ((lc[1] - lc[0]) / (2j * h)).real == pytest.approx(expected, rel=1e-6)

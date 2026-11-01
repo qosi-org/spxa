@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import cmath
 import math
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 from scipy import stats
@@ -247,6 +247,30 @@ class KouJumpDiffusion(Process):
         if t < 0:
             raise ValueError(f"Time t must be non-negative, got {t}")
         return cmath.exp(t * self.char_exp(u))
+
+    def char_func_exact(self, u: float | complex | np.ndarray, t: float = 1.0) -> Any:
+        r"""
+        Closed-form characteristic function :math:`\varphi(u; t) = e^{t\psi(u)}`.
+
+        Vectorised over ``u``. The exponent is valid for complex arguments with
+        :math:`-\eta_1 < \operatorname{Im}(u) < \eta_2`, which includes the
+        exponential moment :math:`u = -i` whenever :math:`\eta_1 > 1`.
+        """
+        if t < 0:
+            raise ValueError(f"Time t must be non-negative, got {t}")
+        u_arr = np.atleast_1d(np.asarray(u, dtype=complex))
+        jump_part = (
+            self.p * self.eta1 / (self.eta1 - 1j * u_arr)
+            + self.q * self.eta2 / (self.eta2 + 1j * u_arr)
+            - 1.0
+        )
+        exponent = 1j * self.drift * u_arr - 0.5 * self.sigma**2 * u_arr**2 + self.rate * jump_part
+        result = np.exp(t * exponent)
+        return result if result.shape != (1,) else result[0]
+
+    def char_func(self, u: float | complex | np.ndarray, t: float = 1.0) -> Any:
+        """Characteristic function, evaluated in closed form (see :meth:`char_func_exact`)."""
+        return self.char_func_exact(u=u, t=t)
 
     def cumulants(self, order: int = 4, t: float = 1.0) -> dict[int, float]:
         r"""

@@ -41,9 +41,11 @@ def _cgmy_levy_measure(C: float, G: float, M: float, Y: float) -> DensityLevyMea
     """
     CGMY Lévy density.
 
-    k(x) = C·exp(-G·x)/x^{1+Y}·𝟙_{x>0} + C·exp(-M·|x|)/|x|^{1+Y}·𝟙_{x<0}
+    k(x) = C·exp(-M·x)/x^{1+Y}·𝟙_{x>0} + C·exp(-G·|x|)/|x|^{1+Y}·𝟙_{x<0}
 
-    Carr et al. (2002), equation (1).
+    Carr et al. (2002), equation (1): M tempers the upward jumps and G the
+    downward ones, consistent with the characteristic exponent
+    C·Γ(-Y)·((M-iu)^Y - M^Y + (G+iu)^Y - G^Y).
     """
     from scipy.special import gamma as gamma_fn  # type: ignore[import-untyped]
 
@@ -51,8 +53,8 @@ def _cgmy_levy_measure(C: float, G: float, M: float, Y: float) -> DensityLevyMea
         out = np.zeros_like(x, dtype=float)
         pos = x > 0
         neg = x < 0
-        out[pos] = C * np.exp(-G * x[pos]) / x[pos] ** (1 + Y)
-        out[neg] = C * np.exp(-M * np.abs(x[neg])) / np.abs(x[neg]) ** (1 + Y)
+        out[pos] = C * np.exp(-M * x[pos]) / x[pos] ** (1 + Y)
+        out[neg] = C * np.exp(-G * np.abs(x[neg])) / np.abs(x[neg]) ** (1 + Y)
         return out
 
     def total_mass() -> float:
@@ -60,15 +62,15 @@ def _cgmy_levy_measure(C: float, G: float, M: float, Y: float) -> DensityLevyMea
             return np.inf
         from scipy import integrate  # type: ignore[import-untyped]
 
-        pos_mass, _ = integrate.quad(lambda x: C * np.exp(-G * x) / x ** (1 + Y), 0, np.inf)
-        neg_mass, _ = integrate.quad(lambda x: C * np.exp(-M * x) / x ** (1 + Y), 0, np.inf)
+        pos_mass, _ = integrate.quad(lambda x: C * np.exp(-M * x) / x ** (1 + Y), 0, np.inf)
+        neg_mass, _ = integrate.quad(lambda x: C * np.exp(-G * x) / x ** (1 + Y), 0, np.inf)
         return pos_mass + neg_mass
 
     def tail(xv: float) -> float:
         from scipy import integrate  # type: ignore[import-untyped]
 
         result, _ = integrate.quad(
-            lambda t: C * np.exp(-G * t) / t ** (1 + Y), xv, np.inf, limit=200
+            lambda t: C * np.exp(-M * t) / t ** (1 + Y), xv, np.inf, limit=200
         )
         return result
 
@@ -98,8 +100,8 @@ class CGMY(Process):
 
     A flexible pure-jump Lévy model with independent control over:
     - Overall jump intensity (C)
-    - Right tail decay (G)
-    - Left tail decay (M)
+    - Left tail decay (G)
+    - Right tail decay (M)
     - Fine structure / activity (Y)
 
     Parameters
@@ -107,11 +109,11 @@ class CGMY(Process):
     C :
         Overall jump intensity. C > 0.
     G :
-        Right-side exponential decay rate. G ≥ 0.
-        G=0 gives a stable right tail.
+        Left-side (downward jump) exponential decay rate. G ≥ 0.
+        G=0 gives a stable left tail.
     M :
-        Left-side exponential decay rate. M ≥ 0.
-        M=0 gives a stable left tail.
+        Right-side (upward jump) exponential decay rate. M ≥ 0.
+        M=0 gives a stable right tail.
     Y :
         Fine-structure index. Y < 2.
         Y < 0  → finite activity (compound Poisson)
@@ -154,7 +156,7 @@ class CGMY(Process):
             kind=NodeKind.PRIMITIVE,
             name=f"CGMY(C={C}, G={G}, M={M}, Y={Y})",
             math_note=(
-                f"Lévy density: C·exp(-G·x)/x^{{1+Y}}·𝟙_{{x>0}} + C·exp(-M·|x|)/|x|^{{1+Y}}·𝟙_{{x<0}}; "
+                f"Lévy density: C·exp(-M·x)/x^{{1+Y}}·𝟙_{{x>0}} + C·exp(-G·|x|)/|x|^{{1+Y}}·𝟙_{{x<0}}; "
                 f"activity: {'finite' if Y < 0 else 'infinite'}, "
                 f"variation: {'finite' if Y < 1 else 'infinite'}"
             ),
@@ -167,22 +169,18 @@ class CGMY(Process):
 
         nu = _cgmy_levy_measure(self.C, self.G, self.M, self.Y)
 
-        if self.Y < 1:
-            b_pos, _ = integrate.quad(
-                lambda x: self.C * np.exp(-self.G * x) / x**self.Y,
-                0.0,
-                1.0,
-                limit=200,
-            )
-            b_neg, _ = integrate.quad(
-                lambda x: self.C * np.exp(-self.M * x) / x**self.Y,
-                0.0,
-                1.0,
-                limit=200,
-            )
+        C, G, M, Y = self.C, self.G, self.M, self.Y
+        if Y < 1:
+            # finite variation: the characteristic exponent has no drift, so
+            # b = ∫_{|x|≤1} x ν(dx) for the truncation 𝟙_{|x|≤1}
+            b_pos, _ = integrate.quad(lambda x: C * np.exp(-M * x) / x**Y, 0.0, 1.0, limit=200)
+            b_neg, _ = integrate.quad(lambda x: C * np.exp(-G * x) / x**Y, 0.0, 1.0, limit=200)
             b_drift = b_pos - b_neg
         else:
-            b_drift = self.cumulant_exact(1)
+            # E[X_1] = b + ∫_{|x|>1} x ν(dx)
+            big_pos, _ = integrate.quad(lambda x: C * np.exp(-M * x) / x**Y, 1.0, np.inf, limit=200)
+            big_neg, _ = integrate.quad(lambda x: C * np.exp(-G * x) / x**Y, 1.0, np.inf, limit=200)
+            b_drift = self.cumulant_exact(1) - (big_pos - big_neg)
 
         return LevyTriplet(b=b_drift, sigma_sq=0.0, nu=nu)
 
@@ -204,7 +202,8 @@ class CGMY(Process):
 
         κ_n(X_t) = t · C · Γ(n-Y) · (M^{Y-n} + (-1)^n · G^{Y-n})
 
-        Valid for n > Y (otherwise the integral diverges).
+        Valid whenever G, M > 0 and n - Y is not a non-positive integer
+        (exponential tempering makes every moment finite).
         Carr et al. (2002), equation (2).
 
         Parameters
@@ -216,9 +215,11 @@ class CGMY(Process):
         """
         from scipy.special import gamma as gamma_fn  # type: ignore[import-untyped]
 
-        if n <= self.Y:
+        untempered = min(self.G, self.M) == 0.0
+        if (untempered and n >= self.Y) or (n - self.Y <= 0 and float(n - self.Y).is_integer()):
             raise ValueError(
-                f"Cumulant of order {n} does not exist for CGMY with Y={self.Y}. Requires n > Y."
+                f"Cumulant of order {n} does not exist (or the closed form is singular) "
+                f"for CGMY with G={self.G}, M={self.M}, Y={self.Y}."
             )
         return (
             t
@@ -231,8 +232,10 @@ class CGMY(Process):
         """Return exact cumulants up to given order using closed-form formula."""
         result: dict[int, float] = {}
         for n in range(1, order + 1):
-            if n > self.Y:
+            try:
                 result[n] = self.cumulant_exact(n)
+            except ValueError:
+                continue
         return result
 
     def char_func_exact(self, u: float | np.ndarray, t: float = 1.0) -> np.ndarray:
