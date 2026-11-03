@@ -17,7 +17,8 @@ eSSVI
     (Hendriks–Martini; arbitrage-free interpolation of Corbetta et al.).
 Calibration
     :func:`calibrate_svi` (quasi-explicit, Zeliade), :func:`svi_inner_fit`,
-    :func:`calibrate_svi_butterfly_free`.
+    :func:`calibrate_svi_butterfly_free`, :func:`calibrate_ssvi`,
+    :func:`isotonic_increasing`.
 No-arbitrage diagnostics
     :func:`durrleman_g`, :func:`risk_neutral_density`,
     :func:`check_butterfly`, :func:`check_calendar`.
@@ -32,9 +33,12 @@ from spxa.vol.arbitrage import (
     risk_neutral_density,
 )
 from spxa.vol.calibration import (
+    SSVIFit,
     SVIFit,
+    calibrate_ssvi,
     calibrate_svi,
     calibrate_svi_butterfly_free,
+    isotonic_increasing,
     svi_inner_fit,
 )
 from spxa.vol.conventions import (
@@ -71,8 +75,11 @@ __all__ = [
     "ESSVISlice",
     "essvi_calendar_free",
     # calibration
+    "SSVIFit",
     "SVIFit",
+    "calibrate_ssvi",
     "calibrate_svi",
+    "isotonic_increasing",
     "calibrate_svi_butterfly_free",
     "svi_inner_fit",
     # arbitrage

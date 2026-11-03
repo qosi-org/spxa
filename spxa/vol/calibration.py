@@ -285,3 +285,131 @@ def calibrate_svi_butterfly_free(
     sse = obj(x) * scale
     wsum = float(np.sum(sw * sw))
     return SVIFit(params, float(np.sqrt(sse / wsum)), sse, nfev, ok)
+
+
+def isotonic_increasing(y: Any, weights: Any = None) -> np.ndarray:
+    """Weighted least-squares non-decreasing fit (pool adjacent violators)."""
+    yy = np.asarray(y, float).ravel()
+    wt = np.ones_like(yy) if weights is None else np.asarray(weights, float).ravel()
+    vals: list[float] = []
+    wts: list[float] = []
+    sizes: list[int] = []
+    for v, w_ in zip(yy, wt):
+        vals.append(float(v))
+        wts.append(float(w_))
+        sizes.append(1)
+        while len(vals) > 1 and vals[-2] > vals[-1]:
+            w2 = wts[-2] + wts[-1]
+            v2 = (vals[-2] * wts[-2] + vals[-1] * wts[-1]) / w2
+            n2 = sizes[-2] + sizes[-1]
+            del vals[-1], wts[-1], sizes[-1]
+            vals[-1], wts[-1], sizes[-1] = v2, w2, n2
+    return np.repeat(vals, sizes)
+
+
+@dataclass(frozen=True)
+class SSVIFit:
+    """Result of :func:`calibrate_ssvi`."""
+
+    surface: Any
+    thetas: np.ndarray
+    rmse: float
+    success: bool
+
+
+def calibrate_ssvi(
+    expiries: Any,
+    ks: Any,
+    ws: Any,
+    phi: str = "power_law",
+    no_arbitrage: bool = True,
+) -> SSVIFit:
+    r"""Fit an SSVI surface to total-variance slices.
+
+    1. The ATM total variance of each slice is read from a quasi-explicit
+       SVI fit at :math:`k = 0` and made non-decreasing in :math:`T` by
+       isotonic regression (no calendar arbitrage at the money).
+    2. :math:`\rho` and the curvature parameters are fitted to all quotes
+       by SLSQP. With ``no_arbitrage`` the sufficient conditions are
+       imposed: :math:`\eta(1 + |\rho|) \le 2`, :math:`\gamma \le 1/2` for
+       the power law (Gatheral–Jacquier Remark 4.4) or
+       :math:`\lambda \ge (1 + |\rho|)/4` for the Heston-like
+       :math:`\varphi` (Corollary 4.1).
+
+    Parameters
+    ----------
+    expiries : sequence of float
+        Increasing expiries.
+    ks, ws : sequences of arrays
+        Log-moneyness and total variance per expiry.
+    phi : ``"power_law"`` or ``"heston"``
+    """
+    from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
+
+    T = np.asarray(expiries, float)
+    if T.ndim != 1 or len(ks) != T.size or len(ws) != T.size:
+        raise ValueError("need one (k, w) slice per expiry")
+    if np.any(np.diff(T) <= 0) or T[0] <= 0:
+        raise ValueError("expiries must be positive and increasing")
+    if phi not in ("power_law", "heston"):
+        raise ValueError("phi must be 'power_law' or 'heston'")
+    slices = [(np.asarray(k, float), np.asarray(w, float)) for k, w in zip(ks, ws)]
+    raw_theta = np.array([float(calibrate_svi(k, w, max_slope=4.0).params(0.0)) for k, w in slices])
+    thetas = isotonic_increasing(raw_theta)
+    curve = ATMVarianceCurve(T, thetas)
+    k_all = np.concatenate([k for k, _ in slices])
+    w_all = np.concatenate([w for _, w in slices])
+    th_all = np.concatenate([np.full(k.size, th) for (k, _), th in zip(slices, thetas)])
+    scale = float(np.sum(w_all**2))
+
+    def surf_w(x: np.ndarray) -> np.ndarray:
+        rho = float(x[0])
+        if phi == "power_law":
+            ph = PowerLawPhi(float(x[1]), float(x[2]))(th_all)
+        else:
+            ph = HestonLikePhi(float(x[1]))(th_all)
+        y = ph * k_all
+        return 0.5 * th_all * (1 + rho * y + np.sqrt((y + rho) ** 2 + 1 - rho * rho))
+
+    def obj(x: np.ndarray) -> float:
+        return float(np.sum((surf_w(x) - w_all) ** 2)) / scale
+
+    cons: list[dict[str, Any]] = []
+    if phi == "power_law":
+        x0 = np.array([-0.5, 0.8, 0.4])
+        bounds = [(-0.999, 0.999), (1e-4, 20.0), (1e-3, 0.5 if no_arbitrage else 0.999)]
+        if no_arbitrage:
+            cons = [
+                {"type": "ineq", "fun": lambda x: 2.0 - x[1] * (1 + x[0])},
+                {"type": "ineq", "fun": lambda x: 2.0 - x[1] * (1 - x[0])},
+            ]
+    else:
+        x0 = np.array([-0.5, 1.0])
+        bounds = [(-0.999, 0.999), (1e-4, 1e3)]
+        if no_arbitrage:
+            cons = [
+                {"type": "ineq", "fun": lambda x: x[1] - (1 + x[0]) / 4},
+                {"type": "ineq", "fun": lambda x: x[1] - (1 - x[0]) / 4},
+            ]
+    best = None
+    for start_rho in (-0.7, -0.3, 0.0, 0.3):
+        x0 = x0.copy()
+        x0[0] = start_rho
+        r = minimize(
+            obj,
+            x0,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=cons,
+            options={"ftol": 1e-15, "maxiter": 500},
+        )
+        if best is None or r.fun < best.fun:
+            best = r
+    assert best is not None
+    x = best.x
+    phi_obj: Any = (
+        PowerLawPhi(float(x[1]), float(x[2])) if phi == "power_law" else HestonLikePhi(float(x[1]))
+    )
+    surface = SSVI(float(x[0]), phi_obj, curve)
+    rmse = float(np.sqrt(obj(x) * scale / w_all.size))
+    return SSVIFit(surface, thetas, rmse, bool(best.success))
