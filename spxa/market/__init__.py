@@ -10,6 +10,9 @@ Day counts
 Calendars
     :class:`Calendar`, :class:`JointCalendar`, :func:`get_calendar`
     (TARGET, US-FED, US-SIFMA/SOFR, UK, weekends), :func:`easter_sunday`.
+Schedules
+    :func:`adjust` (F, MF, P, MP, U), :class:`Schedule` with front/back,
+    short/long and explicit stubs, the end-of-month rule and accrual periods.
 """
 
 from spxa.market.dates import (
@@ -33,6 +36,12 @@ from spxa.market.calendars import (
     get_calendar,
 )
 from spxa.market.daycount import DayCount, available_day_counts, day_count, year_fraction
+from spxa.market.schedule import (
+    AccrualPeriod,
+    Schedule,
+    adjust,
+    available_business_day_conventions,
+)
 
 __all__ = [
     # dates
@@ -58,4 +67,9 @@ __all__ = [
     "available_calendars",
     "easter_sunday",
     "get_calendar",
+    # schedules
+    "AccrualPeriod",
+    "Schedule",
+    "adjust",
+    "available_business_day_conventions",
 ]
