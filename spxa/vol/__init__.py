@@ -9,6 +9,9 @@ Coordinates
     :func:`total_variance_from_price`.
 SVI
     :class:`SVIRaw`, :class:`SVINatural`, :class:`SVIJumpWings`.
+SSVI
+    :class:`SSVI` with :class:`HestonLikePhi`, :class:`PowerLawPhi` and
+    :class:`ATMVarianceCurve`; Theorems 4.1 and 4.2 of Gatheral–Jacquier.
 No-arbitrage diagnostics
     :func:`durrleman_g`, :func:`risk_neutral_density`,
     :func:`check_butterfly`, :func:`check_calendar`.
@@ -30,6 +33,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
+from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
 
 __all__ = [
@@ -44,6 +48,11 @@ __all__ = [
     "SVIJumpWings",
     "SVINatural",
     "SVIRaw",
+    # SSVI
+    "SSVI",
+    "ATMVarianceCurve",
+    "HestonLikePhi",
+    "PowerLawPhi",
     # arbitrage
     "ButterflyCheck",
     "CalendarCheck",
