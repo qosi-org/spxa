@@ -45,6 +45,10 @@ Bootstrapping
     non-local ones; other curves are passed as ``known``.
     :func:`fit_curves` (:class:`CurveSpec`, :class:`GlobalFitResult`)
     solves several curves at once by Newton's method.
+Parametric curves
+    :class:`NelsonSiegelSvensson`, :func:`nelson_siegel`,
+    :func:`fit_nss_zero_rates` (variable projection) and :func:`fit_nss`
+    (helpers), returning :class:`NSSFit`.
 Meeting-date curves
     :func:`flat_forward_curve`, :func:`meeting_date_curve`
     (:class:`MeetingCurveResult`): one flat forward per policy period.
@@ -128,6 +132,14 @@ from spxa.rates.pricing import CashflowRow, cashflow_table, leg_annuity, leg_pv
 from spxa.rates.instruments import FRA, Deposit
 from spxa.rates.turns import ForwardSpread, SpreadAdjustedCurve, turn_of_year
 from spxa.rates.meetings import MeetingCurveResult, flat_forward_curve, meeting_date_curve
+from spxa.rates.parametric import (
+    NelsonSiegelSvensson,
+    NSSFit,
+    fit_nss,
+    fit_nss_zero_rates,
+    nelson_siegel,
+    nss_loadings,
+)
 from spxa.rates.swaps import (
     BasisSwap,
     NotionalLike,
@@ -246,4 +258,11 @@ __all__ = [
     "flat_forward_curve",
     "meeting_date_curve",
     "MeetingCurveResult",
+    # parametric curves
+    "NelsonSiegelSvensson",
+    "nelson_siegel",
+    "nss_loadings",
+    "fit_nss_zero_rates",
+    "fit_nss",
+    "NSSFit",
 ]
