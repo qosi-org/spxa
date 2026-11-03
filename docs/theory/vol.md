@@ -106,7 +106,13 @@ c(k, t) = \alpha_t\,c_i(k) + (1 - \alpha_t)\,c_{i+1}(k), \qquad
 \alpha_t = \frac{\sqrt{\theta_{i+1}} - \sqrt{\theta_t}}{\sqrt{\theta_{i+1}} - \sqrt{\theta_i}}.
 $$
 
-Below the first expiry, $c_0(k) = (1 - e^k)^+$ is intrinsic value. A convex combination of call-price functions is the call-price function of a mixture of distributions, so butterfly arbitrage cannot appear. Because $\alpha_t$ decreases in $t$ and the slices are ordered, prices are non-decreasing in $t$, so calendar arbitrage cannot appear either. The ATM price $\sqrt{\theta/2\pi}(1 - \theta/24 + \dots)$ is interpolated linearly in $\sqrt\theta$. The interpolated ATM total variance therefore lies within $\theta_t(\sqrt{\theta_{i+1}} - \sqrt{\theta_i})^2/16$ of $\theta_t$.
+Below the first expiry, $c_0(k) = (1 - e^k)^+$ is intrinsic value. A convex combination of call-price functions is the call-price function of a mixture of distributions, so butterfly arbitrage cannot appear. Because $\alpha_t$ decreases in $t$ and the slices are ordered, prices are non-decreasing in $t$, so calendar arbitrage cannot appear either. In $s = \sqrt\theta$ the ATM price is $(s - s^3/24 + \dots)/\sqrt{2\pi}$, and the weights are linear in $s$. The only error comes from interpolating $s^3$ linearly, which is exactly $(s - s_i)(s_{i+1} - s)(s_i + s + s_{i+1})$. The interpolated ATM total variance therefore falls short of $\theta_t$ by
+
+$$
+\theta_t - w(0, t) = \frac{s}{12}(s - s_i)(s_{i+1} - s)(s_i + s + s_{i+1})\bigl(1 + O(\theta_{i+1})\bigr), \qquad s = \sqrt{\theta_t}.
+$$
+
+The tests check this to a relative accuracy of $\theta_{i+1}/20$.
 
 ---
 

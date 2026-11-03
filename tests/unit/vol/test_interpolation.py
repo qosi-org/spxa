@@ -42,13 +42,16 @@ def test_weights_and_theta() -> None:
 
 
 def test_atm_total_variance_tracks_theta() -> None:
-    # the ATM price s/sqrt(2 pi) (1 - s^2/24 + ...) in s = sqrt(theta) is interpolated
-    # linearly in s: the error is at most theta_t (sqrt(theta_{i+1}) - sqrt(theta_i))^2 / 16
-    nodes = np.concatenate([[0.0], PIS.thetas])
+    # the ATM price (s - s^3/24 + ...)/sqrt(2 pi) in s = sqrt(theta) is interpolated
+    # linearly in s; the cubic's interpolation error gives the shortfall in closed form
+    nodes = np.sqrt(np.concatenate([[0.0], PIS.thetas]))
     for t in (0.1, 0.3, 0.7, 1.4, 1.9):
         i, _ = PIS.bucket(t)
-        bound = PIS.theta(t) * (np.sqrt(nodes[i + 1]) - np.sqrt(nodes[i])) ** 2 / 16
-        assert abs(PIS.total_variance(0.0, t) - PIS.theta(t)) < 1.05 * bound
+        s, lo, hi = np.sqrt(PIS.theta(t)), nodes[i], nodes[i + 1]
+        lead = s * (s - lo) * (hi - s) * (lo + s + hi) / 12
+        short = PIS.theta(t) - PIS.total_variance(0.0, t)
+        assert short > 0
+        assert short == pytest.approx(lead, rel=hi**2 / 20)
 
 
 def test_no_butterfly_arbitrage_between_nodes() -> None:

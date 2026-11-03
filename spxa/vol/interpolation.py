@@ -23,13 +23,15 @@ where :math:`c_i(k)` is the normalised undiscounted call price of slice
   :math:`c_i \le c_{i+1}` pointwise. Since :math:`\alpha_t` decreases in
   :math:`t`, :math:`c(k, t)` is non-decreasing in :math:`t` for every
   :math:`k`, within and across buckets.
-* **ATM level.** The ATM price :math:`2\Phi(\sqrt\theta/2) - 1 =
-  \sqrt{\theta/2\pi}\,(1 + O(\theta))` is linear in :math:`\sqrt\theta` to
-  leading order. Interpolating with weights linear in :math:`\sqrt\theta`
-  therefore returns an ATM total variance within
-  :math:`\theta_t(\sqrt{\theta_{i+1}} - \sqrt{\theta_i})^2/16` of
-  :math:`\theta_t`, from the curvature :math:`-\sqrt\theta/(4\sqrt{2\pi})` of the
-  price in :math:`\sqrt\theta`.
+* **ATM level.** In :math:`s = \sqrt\theta` the ATM price is
+  :math:`2\Phi(s/2) - 1 = (s - s^3/24 + O(s^5))/\sqrt{2\pi}`, so weights
+  linear in :math:`s` reproduce it up to the interpolation error of
+  :math:`s^3`, which is exactly
+  :math:`(s - s_i)(s_{i+1} - s)(s_i + s + s_{i+1})`. The interpolated ATM
+  total variance therefore falls short of :math:`\theta_t` by
+
+  .. math:: \theta_t - w(0, t) = \frac{s}{12}(s - s_i)(s_{i+1} - s)(s_i + s + s_{i+1})
+            \,\bigl(1 + O(\theta_{i+1})\bigr), \qquad s = \sqrt{\theta_t}.
 
 Between :math:`0` and :math:`t_1` the mixture is with the point mass at the
 forward, so the density has an atom at :math:`k = 0` for
