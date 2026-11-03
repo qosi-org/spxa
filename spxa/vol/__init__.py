@@ -23,6 +23,9 @@ Calibration
 No-arbitrage diagnostics
     :func:`durrleman_g`, :func:`risk_neutral_density`,
     :func:`check_butterfly`, :func:`check_calendar`.
+Implied distribution
+    :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
+    and samples of :math:`\log(S_T/F_T)` from a slice.
 """
 
 from spxa.vol.arbitrage import (
@@ -50,6 +53,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
+from spxa.vol.density import ImpliedDistribution
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
@@ -92,4 +96,6 @@ __all__ = [
     "check_calendar",
     "durrleman_g",
     "risk_neutral_density",
+    # implied distribution
+    "ImpliedDistribution",
 ]
