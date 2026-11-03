@@ -9,6 +9,8 @@ from spxa.vol import (
     ESSVI,
     ESSVISlice,
     SVINatural,
+    anchored_theta,
+    calibrate_essvi,
     check_butterfly,
     check_calendar,
     essvi_calendar_free,
@@ -120,3 +122,46 @@ def test_validation() -> None:
     assert single.long_theta_slope == pytest.approx(0.04, abs=1e-17)
     bad = ESSVI([1.0], [ESSVISlice(0.0004, 0.2, -0.5)])
     assert bad.violations() == ["butterfly at T=1"] and not bad.is_arbitrage_free()
+
+
+class TestCalibration:
+    ks = [np.linspace(-3 * np.sqrt(th), 1.5 * np.sqrt(th), 21) for _, th, _, _ in TABLE1]
+
+    def test_anchored_theta_is_exact(self) -> None:
+        s = ESSVISlice(0.04, 0.2, -0.6)
+        for k_star in (-0.3, -0.05, 0.0, 0.13):
+            th = anchored_theta(-0.6, 0.2, k_star, s(k_star))
+            assert th == pytest.approx(0.04, rel=1e-14)
+            assert ESSVISlice(th, 0.2, -0.6)(k_star) == pytest.approx(s(k_star), rel=1e-14)
+
+    def test_recovers_published_surface(self) -> None:
+        ws = [SURF.total_variance(k, t) for k, t in zip(self.ks, TIMES)]
+        fit = calibrate_essvi(TIMES, self.ks, ws)
+        assert fit.is_arbitrage_free()
+        for got, (_, th, ps, rh) in zip(fit.slices, TABLE1):
+            assert (got.theta, got.psi, got.rho) == pytest.approx((th, ps, rh), rel=1e-7, abs=1e-8)
+
+    def test_noisy_quotes_stay_arbitrage_free(self) -> None:
+        rng = np.random.default_rng(11)
+        ws = [
+            SURF.total_variance(k, t) * (1 + 0.02 * rng.standard_normal(k.size))
+            for k, t in zip(self.ks, TIMES)
+        ]
+        fit = calibrate_essvi(TIMES, self.ks, ws)
+        assert fit.is_arbitrage_free()
+        params = [fit.params(T) for T in np.linspace(0.01, 3.5, 80)]
+        assert all(p.butterfly_free() for p in params)
+        assert check_calendar(params, K, tol=1e-15)
+        for got, (_, th, ps, rh) in zip(fit.slices, TABLE1):
+            assert abs(got.rho - rh) < 0.15 and abs(got.psi / ps - 1) < 0.2
+
+    def test_infeasible_slice(self) -> None:
+        k = np.array([-0.2, 0.0, 0.2])
+        s1 = ESSVISlice(0.04, 0.2, -0.5)
+        s2 = ESSVISlice(0.02, 0.2, -0.5)  # ATM variance falls
+        with pytest.raises(ValueError, match="previous expiry"):
+            calibrate_essvi([0.5, 1.0], [k, k], [s1(k), s2(k)])
+        with pytest.raises(ValueError, match="one"):
+            calibrate_essvi([0.5], [k, k], [s1(k)])
+        with pytest.raises(ValueError, match="at least 3"):
+            calibrate_essvi([0.5], [k[:2]], [s1(k[:2])])

@@ -13,7 +13,8 @@ SSVI
     :class:`SSVI` with :class:`HestonLikePhi`, :class:`PowerLawPhi` and
     :class:`ATMVarianceCurve`; Theorems 4.1 and 4.2 of Gatheral–Jacquier.
 eSSVI
-    :class:`ESSVISlice`, :class:`ESSVI` and :func:`essvi_calendar_free`
+    :class:`ESSVISlice`, :class:`ESSVI`, :func:`essvi_calendar_free` and
+    :func:`calibrate_essvi`
     (Hendriks–Martini; arbitrage-free interpolation of Corbetta et al.).
 Calibration
     :func:`calibrate_svi` (quasi-explicit, Zeliade), :func:`svi_inner_fit`,
@@ -49,7 +50,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
-from spxa.vol.essvi import ESSVI, ESSVISlice, essvi_calendar_free
+from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
 
@@ -73,6 +74,8 @@ __all__ = [
     # eSSVI
     "ESSVI",
     "ESSVISlice",
+    "anchored_theta",
+    "calibrate_essvi",
     "essvi_calendar_free",
     # calibration
     "SSVIFit",

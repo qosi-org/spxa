@@ -33,7 +33,7 @@ import numpy as np
 
 from spxa.vol.svi import SVINatural, SVIRaw
 
-__all__ = ["ESSVI", "ESSVISlice", "essvi_calendar_free"]
+__all__ = ["ESSVI", "ESSVISlice", "anchored_theta", "calibrate_essvi", "essvi_calendar_free"]
 
 
 @dataclass(frozen=True)
@@ -171,3 +171,128 @@ class ESSVI:
             if not essvi_calendar_free(a, b):
                 out.append(f"calendar between T={self.times[i]:g} and T={self.times[i + 1]:g}")
         return out
+
+
+def anchored_theta(rho: float, psi: Any, k_star: float, theta_star: float) -> Any:
+    r"""ATM variance of the slice through :math:`(k^*, \theta^*)`.
+
+    Solving :math:`w(k^*; \theta, \rho, \psi) = \theta^*` exactly gives
+
+    .. math:: \theta = \frac{(2\theta^* - \rho\psi k^*)^2 - \psi^2 k^{*2}}{4\theta^*}
+              = \theta^* - \rho\psi k^* - \frac{(1 - \rho^2)k^{*2}}{4\theta^*}\psi^2,
+
+    whose first-order part is the anchor of Corbetta et al.
+    """
+    return (
+        theta_star
+        - rho * psi * k_star
+        - (1.0 - rho * rho) * k_star * k_star / (4.0 * theta_star) * psi * psi
+    )
+
+
+def _quad_below(a: float, b: float, c: float) -> tuple[float, float]:
+    """Interval where ``a x^2 + b x + c <= 0`` (``a >= 0``); empty as ``(1, 0)``."""
+    if a == 0.0:
+        if b == 0.0:
+            return (-np.inf, np.inf) if c <= 0 else (1.0, 0.0)
+        return (-np.inf, -c / b) if b > 0 else (-c / b, np.inf)
+    disc = b * b - 4 * a * c
+    if disc < 0:
+        return (1.0, 0.0)
+    r = np.sqrt(disc)
+    # numerically stable roots
+    q = -0.5 * (b + np.copysign(r, b))
+    x1, x2 = sorted((q / a, c / q if q != 0 else 0.0))
+    return x1, x2
+
+
+def _psi_bounds(
+    rho: float, k_star: float, theta_star: float, prev: Optional[ESSVISlice]
+) -> tuple[float, float]:
+    """Admissible ``psi`` for the anchored slice (exact anchor, Corbetta et al. §2)."""
+    a = 1.0 + abs(rho)
+    c = (1.0 - rho * rho) * k_star * k_star / (4.0 * theta_star)
+    lo, hi = 0.0, 4.0 / a
+    # psi^2 (1 + |rho|) <= 4 theta(psi)  (this also keeps theta > 0)
+    l2, h2 = _quad_below(a + 4.0 * c, 4.0 * rho * k_star, -4.0 * theta_star)
+    lo, hi = max(lo, l2), min(hi, h2)
+    if prev is not None:
+        pp, rp = prev.psi, prev.rho
+        lo = max(lo, (pp - rp * pp) / (1.0 - rho), (pp + rp * pp) / (1.0 + rho))
+        # theta(psi) >= theta_prev
+        l3, h3 = _quad_below(c, rho * k_star, prev.theta - theta_star)
+        lo, hi = max(lo, l3), min(hi, h3)
+    return lo, hi
+
+
+def calibrate_essvi(
+    expiries: Sequence[float],
+    ks: Sequence[Any],
+    ws: Sequence[Any],
+    n_rho: int = 41,
+    margin: float = 1e-9,
+) -> ESSVI:
+    r"""Slice-by-slice arbitrage-free eSSVI calibration (Corbetta et al. 2019).
+
+    Each slice is anchored at the quote closest to the money,
+    :math:`(k^*, \theta^*)`, and parametrised by :math:`(\rho, \psi)`, with
+    :math:`\theta` from :func:`anchored_theta` (the exact version of the
+    paper's first-order :math:`\theta = \theta^* - \rho\psi k^*`, so the
+    slice passes through the anchor). For a given :math:`\rho` the
+    butterfly conditions and the calendar conditions against the previous
+    slice reduce to an interval for :math:`\psi`, over which the
+    least-squares error in total variance is minimised by a bounded scalar
+    search; :math:`\rho` is scanned on a grid of ``n_rho`` points and the
+    best value refined by a bounded search on the profile error. Every
+    slice therefore satisfies the eSSVI no-arbitrage conditions, and so
+    does the interpolated surface.
+    """
+    from scipy.optimize import minimize_scalar
+
+    T = np.asarray(expiries, float)
+    if T.ndim != 1 or len(ks) != T.size or len(ws) != T.size:
+        raise ValueError("need one (k, w) slice per expiry")
+    slices: list[ESSVISlice] = []
+    prev: Optional[ESSVISlice] = None
+    for k_raw, w_raw in zip(ks, ws):
+        k = np.asarray(k_raw, float)
+        w = np.asarray(w_raw, float)
+        if k.shape != w.shape or k.size < 3:
+            raise ValueError("each slice needs at least 3 quotes")
+        j = int(np.argmin(np.abs(k)))
+        k_star, theta_star = float(k[j]), float(w[j])
+
+        def sse(rho: float, psi: float) -> float:
+            theta = anchored_theta(rho, psi, k_star, theta_star)
+            y = psi / theta * k
+            model = 0.5 * theta * (1 + rho * y + np.sqrt((y + rho) ** 2 + 1 - rho * rho))
+            return float(np.sum((model - w) ** 2))
+
+        def profile(rho: float) -> tuple[float, float]:
+            lo, hi = _psi_bounds(rho, k_star, theta_star, prev)
+            lo, hi = lo + margin, hi - margin
+            if hi <= lo:
+                return np.inf, np.nan
+            r = minimize_scalar(
+                lambda p: sse(rho, p), bounds=(lo, hi), method="bounded", options={"xatol": 1e-12}
+            )
+            return float(r.fun), float(r.x)
+
+        grid = np.linspace(-0.99, 0.99, n_rho)
+        vals = [profile(float(r))[0] for r in grid]
+        i = int(np.argmin(vals))
+        if not np.isfinite(vals[i]):
+            raise ValueError("no arbitrage-free slice is compatible with the previous expiry")
+        step = grid[1] - grid[0]
+        r = minimize_scalar(
+            lambda x: profile(float(x))[0],
+            bounds=(max(grid[i] - step, -0.999), min(grid[i] + step, 0.999)),
+            method="bounded",
+            options={"xatol": 1e-10},
+        )
+        rho = float(r.x) if r.fun <= vals[i] else float(grid[i])
+        psi = profile(rho)[1]
+        s = ESSVISlice(anchored_theta(rho, psi, k_star, theta_star), psi, rho)
+        slices.append(s)
+        prev = s
+    return ESSVI(T, slices)
