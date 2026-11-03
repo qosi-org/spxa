@@ -17,17 +17,27 @@ standard: annual 30/360 fixed against the index tenor).
 
 A :class:`BasisSwap` exchanges two floating legs, e.g. EURIBOR 3M plus a
 spread against EURIBOR 6M, or €STR against EURIBOR 3M (:func:`basis_swap`).
+
+**Amortising and accreting swaps.** The ``notional`` of :func:`ois_swap`
+and :func:`vanilla_swap` may be a number, a sequence with one entry per
+period (when both legs share a schedule), or a function of the accrual
+start date, such as :func:`step_notional` or :func:`linear_notional`.
+Every coupon is linear in its notional, so a swap whose notional steps
+down by :math:`\Delta N_j` at the dates :math:`T_j` is exactly the sum of
+bullet swaps of notional :math:`\Delta N_j` maturing at :math:`T_j`, and its
+par rate is the annuity-weighted average of their par rates.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
 from dataclasses import dataclass, field, replace
-from typing import Optional, Sequence
+from bisect import bisect_right
+from typing import Callable, Optional, Sequence, Union
 
 from spxa.market.calendars import get_calendar
 from spxa.market.curves import YieldCurve
-from spxa.market.dates import DateLike, add_tenor
+from spxa.market.dates import DateLike, add_tenor, to_date
 from spxa.market.schedule import Schedule, adjust
 from spxa.rates.cashflows import (
     Cashflow,
@@ -40,7 +50,68 @@ from spxa.rates.cashflows import (
 from spxa.rates.indices import EURIBOR6M, SOFR, FixingHistory, IborIndex, OvernightIndex
 from spxa.rates.pricing import leg_annuity, leg_pv
 
-__all__ = ["BasisSwap", "Swap", "basis_swap", "ois_swap", "vanilla_swap"]
+__all__ = [
+    "BasisSwap",
+    "NotionalLike",
+    "Swap",
+    "basis_swap",
+    "linear_notional",
+    "ois_swap",
+    "step_notional",
+    "vanilla_swap",
+]
+
+NotionalLike = Union[float, Sequence[float], Callable[[_dt.date], float]]
+
+
+def step_notional(
+    dates: Sequence[DateLike], values: Sequence[float]
+) -> Callable[[_dt.date], float]:
+    """Piecewise-constant notional: ``values[j]`` from ``dates[j]`` (inclusive) to ``dates[j+1]``.
+
+    Dates before ``dates[0]`` raise; ``dates`` must be increasing.
+    """
+    ds = [to_date(d) for d in dates]
+    vs = [float(v) for v in values]
+    if len(ds) != len(vs) or not ds:
+        raise ValueError("need one value per date")
+    if any(b <= a for a, b in zip(ds, ds[1:])):
+        raise ValueError("dates must be strictly increasing")
+
+    def f(d: _dt.date) -> float:
+        j = bisect_right(ds, to_date(d)) - 1
+        if j < 0:
+            raise ValueError(f"{d} is before the first notional date {ds[0]}")
+        return vs[j]
+
+    return f
+
+
+def linear_notional(
+    start: DateLike, end: DateLike, initial: float, final: float = 0.0
+) -> Callable[[_dt.date], float]:
+    """Notional moving linearly in calendar days from ``initial`` at ``start`` to ``final`` at ``end``.
+
+    Evaluated at each accrual start; ``final > initial`` gives an accreting swap.
+    """
+    s0, e0 = to_date(start), to_date(end)
+    span = (e0 - s0).days
+    if span <= 0:
+        raise ValueError("end must be after start")
+
+    def f(d: _dt.date) -> float:
+        x = (to_date(d) - s0).days / span
+        return float(initial) + (float(final) - float(initial)) * min(max(x, 0.0), 1.0)
+
+    return f
+
+
+def _leg_notional(notional: NotionalLike, schedule: Schedule) -> "float | list[float]":
+    if callable(notional):
+        return [float(notional(p.start)) for p in schedule.periods()]
+    if isinstance(notional, (int, float)):
+        return float(notional)
+    return [float(x) for x in notional]
 
 
 @dataclass(frozen=True)
@@ -188,7 +259,7 @@ def ois_swap(
     tenor: str,
     fixed_rate: float,
     index: OvernightIndex = SOFR,
-    notional: float = 1.0,
+    notional: NotionalLike = 1.0,
     payer: bool = True,
     frequency: str = "1Y",
     payment_lag: int = 2,
@@ -207,8 +278,9 @@ def ois_swap(
     start, end = _dates(trade_date, tenor, index.calendar, spot_lag, forward_start)
     sch = Schedule(start, end, frequency, index.calendar, "MF", stub="short_back")
     dc = fixed_day_count or index.day_count
-    fx = fixed_leg(sch, notional, fixed_rate, dc, payment_lag, index.calendar)
-    fl = overnight_leg(sch, notional, index, spread=spread, payment_lag=payment_lag)
+    n = _leg_notional(notional, sch)
+    fx = fixed_leg(sch, n, fixed_rate, dc, payment_lag, index.calendar)
+    fl = overnight_leg(sch, n, index, spread=spread, payment_lag=payment_lag)
     return Swap(fx, fl, payer, {"type": "OIS", "index": index.name, "tenor": tenor})
 
 
@@ -217,7 +289,7 @@ def vanilla_swap(
     tenor: str,
     fixed_rate: float,
     index: IborIndex = EURIBOR6M,
-    notional: float = 1.0,
+    notional: NotionalLike = 1.0,
     payer: bool = True,
     fixed_tenor: str = "1Y",
     fixed_day_count: str = "30/360",
@@ -243,8 +315,20 @@ def vanilla_swap(
     fl_sch = Schedule(
         start, end, float_tenor or index.tenor, index.calendar, "MF", end_of_month=eom
     )
-    fx = fixed_leg(fx_sch, notional, fixed_rate, fixed_day_count)
-    fl = ibor_leg(fl_sch, notional, index, spread=spread, use_index_dates=use_index_dates)
+    if not callable(notional) and not isinstance(notional, (int, float)):
+        if len(fx_sch.periods()) != len(fl_sch.periods()):
+            raise ValueError(
+                "legs have different schedules: pass the notional as a function of the "
+                "accrual start date (e.g. step_notional)"
+            )
+    fx = fixed_leg(fx_sch, _leg_notional(notional, fx_sch), fixed_rate, fixed_day_count)
+    fl = ibor_leg(
+        fl_sch,
+        _leg_notional(notional, fl_sch),
+        index,
+        spread=spread,
+        use_index_dates=use_index_dates,
+    )
     return Swap(fx, fl, payer, {"type": "IRS", "index": index.name, "tenor": tenor})
 
 

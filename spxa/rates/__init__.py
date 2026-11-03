@@ -21,7 +21,8 @@ Futures
     Hull–White convexity.
 Swaps
     :class:`Swap`, :func:`ois_swap`, :func:`vanilla_swap`,
-    :class:`BasisSwap`, :func:`basis_swap`.
+    :class:`BasisSwap`, :func:`basis_swap`; amortising notionals with
+    :func:`step_notional` and :func:`linear_notional`.
 Bonds
     :class:`FixedRateBond` (street yield, duration, convexity, z-spread).
 Pricing
@@ -71,7 +72,16 @@ from spxa.rates.indices import (
 )
 from spxa.rates.pricing import CashflowRow, cashflow_table, leg_annuity, leg_pv
 from spxa.rates.instruments import FRA, Deposit
-from spxa.rates.swaps import BasisSwap, Swap, basis_swap, ois_swap, vanilla_swap
+from spxa.rates.swaps import (
+    BasisSwap,
+    NotionalLike,
+    Swap,
+    basis_swap,
+    linear_notional,
+    ois_swap,
+    step_notional,
+    vanilla_swap,
+)
 from spxa.rates.overnight import (
     CompoundedRate,
     compounded_overnight_rate,
@@ -134,6 +144,9 @@ __all__ = [
     "basis_swap",
     "ois_swap",
     "vanilla_swap",
+    "NotionalLike",
+    "linear_notional",
+    "step_notional",
     # bonds
     "BondCashflow",
     "FixedRateBond",
