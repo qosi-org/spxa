@@ -17,6 +17,8 @@ Curves and forwards
     :class:`YieldCurve`, :class:`FlatCurve`, :class:`InterpolatedDiscountCurve`,
     compounding conversions, :class:`EquityForward` with dividend yields,
     repo and discrete (cash or proportional) dividends.
+Option formulas
+    Black, Bachelier and shifted Black prices and Greeks; Black–Scholes on spot.
 """
 
 from spxa.market.dates import (
@@ -31,6 +33,16 @@ from spxa.market.dates import (
     is_end_of_month,
     is_leap_year,
     to_date,
+)
+from spxa.market.black import (
+    bachelier_greeks,
+    bachelier_price,
+    black_greeks,
+    black_price,
+    black_scholes_greeks,
+    black_scholes_price,
+    shifted_black_greeks,
+    shifted_black_price,
 )
 from spxa.market.calendars import (
     Calendar,
@@ -95,4 +107,13 @@ __all__ = [
     "YieldCurve",
     "discount_from_rate",
     "rate_from_discount",
+    # option formulas
+    "bachelier_greeks",
+    "bachelier_price",
+    "black_greeks",
+    "black_price",
+    "black_scholes_greeks",
+    "black_scholes_price",
+    "shifted_black_greeks",
+    "shifted_black_price",
 ]
