@@ -107,3 +107,94 @@ def test_validation() -> None:
         c.discount(-0.1)
     with pytest.raises(ValueError):
         c.with_discounts([0.9, 0.8])
+
+
+# -- cubic schemes -------------------------------------------------------------
+from spxa.rates.interpolation import (  # noqa: E402
+    CubicSplineRT,
+    CubicZero,
+    MonotoneCubicRT,
+    hyman_slopes,
+)
+
+ALL = [LogLinearDiscount(), LinearZero(), CubicSplineRT(), CubicSplineRT("not-a-knot")]
+ALL += [CubicZero(), CubicZero("not-a-knot"), MonotoneCubicRT()]
+
+
+@pytest.mark.parametrize("scheme", ALL, ids=repr)
+def test_all_schemes_reproduce_nodes(scheme: object) -> None:
+    c = PiecewiseCurve.from_zero_rates(T, R, scheme)  # type: ignore[arg-type]
+    assert c.discount(T) == pytest.approx(np.exp(-R * T), rel=1e-14)
+    t = np.linspace(0.01, 12.0, 397)
+    t = t[np.min(np.abs(t[:, None] - T[None, :]), axis=1) > 1e-3]
+    h = 1e-6
+    fd = -(np.log(c.discount(t + h)) - np.log(c.discount(t - h))) / (2 * h)
+    assert c.instantaneous_forward(t) == pytest.approx(fd, abs=1e-8)
+    one = PiecewiseCurve([1.0], [0.97], scheme)  # type: ignore[arg-type]
+    assert one.discount(2.0) == pytest.approx(0.97**2, rel=1e-14)
+
+
+def _cubic_rt(t: np.ndarray) -> np.ndarray:
+    return 0.02 * t + 0.003 * t**2 - 0.0002 * t**3
+
+
+def test_not_a_knot_spline_exact_on_cubics() -> None:
+    c = PiecewiseCurve(T, np.exp(-_cubic_rt(T)), CubicSplineRT("not-a-knot"))
+    t = np.linspace(0, 10, 101)
+    assert -np.log(c.discount(t)) == pytest.approx(_cubic_rt(t), abs=1e-15)
+    assert c.instantaneous_forward(t) == pytest.approx(0.02 + 0.006 * t - 0.0006 * t**2, abs=1e-14)
+    r = 0.03 + 0.001 * T - 0.0001 * T**2 + 0.000005 * T**3
+    z = PiecewiseCurve.from_zero_rates(T, r, CubicZero("not-a-knot"))
+    s = np.linspace(0.5, 10, 50)
+    exact = 0.03 + 0.001 * s - 0.0001 * s**2 + 0.000005 * s**3
+    assert z.zero_rate(s) == pytest.approx(exact, abs=1e-15)
+    assert z.zero_rate(0.2) == pytest.approx(r[0], abs=1e-15)  # flat before t_1
+
+
+def test_natural_spline_forwards_smooth_with_flat_ends() -> None:
+    c = PiecewiseCurve.from_zero_rates(T, R, CubicSplineRT())
+    for tn in T[:-1]:
+        lo, hi = c.instantaneous_forward(tn - 1e-10), c.instantaneous_forward(tn + 1e-10)
+        assert abs(hi - lo) < 1e-9
+    h = 1e-5
+    for e in (0.0, 10.0):
+        a = max(e - h, 0.0)
+        slope = (c.instantaneous_forward(a + h) - c.instantaneous_forward(a)) / h
+        assert abs(slope) < 1e-6  # f' = (rt)'' = 0 at both ends
+
+
+def test_hyman_exact_on_quadratics_and_filter() -> None:
+    x = np.array([0.0, 0.5, 1.0, 2.0, 5.0, 10.0])
+    y = 0.02 * x + 0.001 * x**2
+    assert hyman_slopes(x, y) == pytest.approx(0.02 + 0.002 * x, abs=1e-15)
+    c = PiecewiseCurve(x[1:], np.exp(-y[1:]), MonotoneCubicRT())
+    t = np.linspace(0, 10, 201)
+    assert c.instantaneous_forward(t) == pytest.approx(0.02 + 0.002 * t, abs=1e-15)
+    # filter: slopes clipped to 3 min(neighbouring secants), zero at extrema
+    xs = np.array([0.0, 1.0, 2.0, 3.0])
+    s = hyman_slopes(xs, np.array([0.0, 1.0, 1.01, 3.0]))
+    assert s[1] == pytest.approx(0.03) and s[2] == pytest.approx(0.03)
+    assert hyman_slopes(xs, np.array([0.0, 1.0, 0.5, 2.0]))[1:3].tolist() == [0.0, 0.0]
+    assert hyman_slopes(np.array([0.0, 1.0]), np.array([1.0, 3.0])).tolist() == [2.0, 2.0]
+
+
+def test_monotone_keeps_forwards_positive() -> None:
+    # a steep then nearly flat curve: discrete forwards 4%, 6%, 0.1%, 3%
+    t = np.array([1.0, 2.0, 3.0, 4.0])
+    rt = np.cumsum([0.04, 0.06, 0.001, 0.03])
+    grid = np.linspace(0, 4, 4001)
+    mono = PiecewiseCurve(t, np.exp(-rt), MonotoneCubicRT())
+    assert np.min(mono.instantaneous_forward(grid)) >= 0.0
+    nat = PiecewiseCurve(t, np.exp(-rt), CubicSplineRT())
+    assert np.min(nat.instantaneous_forward(grid)) < -0.005  # the spline undershoots
+    for a, b in zip([0.0, 1, 2, 3], [1.0, 2, 3, 4]):  # monotone discount factors
+        seg = mono.discount(np.linspace(a, b, 101))
+        assert np.all(np.diff(seg) <= 1e-16)
+
+
+def test_scheme_flags_and_bc() -> None:
+    assert LogLinearDiscount.local and LinearZero.local
+    assert not (CubicSplineRT.local or CubicZero.local or MonotoneCubicRT.local)
+    with pytest.raises(ValueError):
+        CubicSplineRT("clamped")
+    assert repr(CubicZero()) == "CubicZero('natural')"

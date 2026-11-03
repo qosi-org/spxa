@@ -17,6 +17,14 @@ interpolated, and hence in the shape of the forward curve (Hagan & West,
 :class:`LinearZero`
     Zero rate :math:`r(t) = -\log P/t` linear between nodes, flat before
     :math:`t_1`. The forward :math:`f = r + t r'` has saw-tooth jumps.
+:class:`CubicSplineRT`
+    Cubic spline on :math:`r t = -\log P` through the origin: smooth
+    forwards that can turn negative and are not local.
+:class:`CubicZero`
+    Cubic spline on :math:`r`, flat before :math:`t_1`.
+:class:`MonotoneCubicRT`
+    Hermite cubic on :math:`r t` with Hyman-filtered slopes: continuous
+    forwards that stay non-negative when the discrete forwards are.
 
 Beyond the last node every scheme extrapolates with the forward it has
 at :math:`t_n` held flat. Negative times are rejected.
@@ -38,6 +46,10 @@ __all__ = [
     "FittedInterpolation",
     "LogLinearDiscount",
     "LinearZero",
+    "CubicSplineRT",
+    "CubicZero",
+    "MonotoneCubicRT",
+    "hyman_slopes",
     "PiecewiseCurve",
     "discrete_forwards",
 ]
@@ -131,6 +143,151 @@ class LinearZero(InterpolationScheme):
 
     def fit(self, times: np.ndarray, logp: np.ndarray) -> FittedInterpolation:
         return _LinearZero(times, logp)
+
+
+class _Spline(FittedInterpolation):
+    """scipy ``CubicSpline`` on ``r t = -log P`` (with the origin) or on ``r``."""
+
+    def __init__(self, times: np.ndarray, logp: np.ndarray, on_rate: bool, bc: str) -> None:
+        super().__init__(times, logp)
+        from scipy.interpolate import CubicSpline
+
+        self.on_rate = on_rate
+        if on_rate:
+            if times.size < 3 and bc == "not-a-knot":
+                bc = "natural"
+            r = -logp[1:] / times[1:]
+            self.sp = CubicSpline(times[1:], r, bc_type=bc) if times.size > 2 else None
+            self.r1 = r[0]
+        else:
+            self.sp = CubicSpline(times, -logp, bc_type=bc if times.size > 2 else "natural")
+
+    def _inside(self, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if not self.on_rate:
+            assert self.sp is not None
+            return -self.sp(t), self.sp(t, 1)
+        if self.sp is None:
+            return -self.r1 * t, np.full_like(t, self.r1)
+        tc = np.maximum(t, self.times[1])
+        r = np.where(t < self.times[1], self.r1, self.sp(tc))
+        dr = np.where(t < self.times[1], 0.0, self.sp(tc, 1))
+        return -r * t, r + t * dr
+
+
+def _check_bc(bc: str) -> str:
+    if bc not in ("natural", "not-a-knot"):
+        raise ValueError("bc must be 'natural' or 'not-a-knot'")
+    return bc
+
+
+class CubicSplineRT(InterpolationScheme):
+    r"""Cubic spline on :math:`r(t)\,t = -\log P` through the origin.
+
+    Forwards are continuous and :math:`C^1`. ``bc`` is ``"natural"``
+    (:math:`f' = 0` at both ends) or ``"not-a-knot"``. The spline is not
+    local and can produce negative forwards from positive discrete
+    forwards.
+    """
+
+    local = False
+
+    def __init__(self, bc: str = "natural") -> None:
+        self.bc = _check_bc(bc)
+
+    def fit(self, times: np.ndarray, logp: np.ndarray) -> FittedInterpolation:
+        return _Spline(times, logp, False, self.bc)
+
+    def __repr__(self) -> str:
+        return f"CubicSplineRT({self.bc!r})"
+
+
+class CubicZero(InterpolationScheme):
+    r"""Cubic spline on the zero rate through :math:`t_1, \dots, t_n`, flat before :math:`t_1`."""
+
+    local = False
+
+    def __init__(self, bc: str = "natural") -> None:
+        self.bc = _check_bc(bc)
+
+    def fit(self, times: np.ndarray, logp: np.ndarray) -> FittedInterpolation:
+        return _Spline(times, logp, True, self.bc)
+
+    def __repr__(self) -> str:
+        return f"CubicZero({self.bc!r})"
+
+
+def hyman_slopes(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    r"""Bessel (three-point) Hermite slopes with the Hyman (1983) monotonicity filter.
+
+    Interior slopes are :math:`(h_i\Delta_{i-1} + h_{i-1}\Delta_i)/(h_{i-1} + h_i)`,
+    exact for quadratics. Where the data are monotone the slope is clipped
+    to :math:`[0, 3\min(\Delta_{i-1}, \Delta_i)]` (signs adjusted), and set to
+    zero at local extrema, which makes the Hermite cubic monotone on every
+    interval where the data are.
+    """
+    h = np.diff(x)
+    d = np.diff(y) / h
+    n = x.size
+    s = np.empty(n)
+    if n == 2:
+        return np.full(2, d[0])
+    s[1:-1] = (h[1:] * d[:-1] + h[:-1] * d[1:]) / (h[:-1] + h[1:])
+    s[0] = d[0] + (d[0] - d[1]) * h[0] / (h[0] + h[1])
+    s[-1] = d[-1] + (d[-1] - d[-2]) * h[-1] / (h[-1] + h[-2])
+    left = np.concatenate([[d[0]], d])
+    right = np.concatenate([d, [d[-1]]])
+    for i in range(n):
+        a, b = left[i], right[i]
+        if a * b <= 0:
+            s[i] = 0.0
+        else:
+            sg = 1.0 if a > 0 else -1.0
+            s[i] = sg * min(max(sg * s[i], 0.0), 3.0 * min(abs(a), abs(b)))
+    return s
+
+
+class _Hermite(FittedInterpolation):
+    def __init__(self, times: np.ndarray, logp: np.ndarray) -> None:
+        super().__init__(times, logp)
+        self.y = -logp
+        self.s = hyman_slopes(times, self.y)
+
+    def _inside(self, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        i = self._locate(t)
+        x0, h = self.times[i - 1], np.diff(self.times)[i - 1]
+        u = (t - x0) / h
+        y0, y1 = self.y[i - 1], self.y[i]
+        m0, m1 = self.s[i - 1] * h, self.s[i] * h
+        h00, h10, h01, h11 = (
+            2 * u**3 - 3 * u**2 + 1,
+            u**3 - 2 * u**2 + u,
+            -2 * u**3 + 3 * u**2,
+            u**3 - u**2,
+        )
+        y = h00 * y0 + h10 * m0 + h01 * y1 + h11 * m1
+        d00, d10, d01, d11 = (
+            6 * u**2 - 6 * u,
+            3 * u**2 - 4 * u + 1,
+            -6 * u**2 + 6 * u,
+            3 * u**2 - 2 * u,
+        )
+        dy = (d00 * y0 + d10 * m0 + d01 * y1 + d11 * m1) / h
+        return -y, dy
+
+
+class MonotoneCubicRT(InterpolationScheme):
+    r"""Hermite cubic on :math:`r t = -\log P` with Hyman-filtered Bessel slopes.
+
+    Forwards are continuous, and non-negative wherever the discrete
+    forwards are, because :math:`r t` is then interpolated monotonically.
+    Each interval depends on its two neighbours, so the scheme is not
+    local.
+    """
+
+    local = False
+
+    def fit(self, times: np.ndarray, logp: np.ndarray) -> FittedInterpolation:
+        return _Hermite(times, logp)
 
 
 class PiecewiseCurve(YieldCurve):

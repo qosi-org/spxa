@@ -30,8 +30,9 @@ Pricing
     separate discount and projection curves.
 Curve construction
     :class:`PiecewiseCurve` on discount-factor nodes with the
-    interpolation schemes :class:`LogLinearDiscount` and
-    :class:`LinearZero`.
+    interpolation schemes :class:`LogLinearDiscount`, :class:`LinearZero`,
+    :class:`CubicSplineRT`, :class:`CubicZero` and
+    :class:`MonotoneCubicRT` (Hyman-filtered, :func:`hyman_slopes`).
 """
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
@@ -75,12 +76,16 @@ from spxa.rates.indices import (
     get_index,
 )
 from spxa.rates.interpolation import (
+    CubicSplineRT,
+    CubicZero,
     FittedInterpolation,
     InterpolationScheme,
     LinearZero,
     LogLinearDiscount,
+    MonotoneCubicRT,
     PiecewiseCurve,
     discrete_forwards,
+    hyman_slopes,
 )
 from spxa.rates.pricing import CashflowRow, cashflow_table, leg_annuity, leg_pv
 from spxa.rates.instruments import FRA, Deposit
@@ -173,5 +178,9 @@ __all__ = [
     "FittedInterpolation",
     "LogLinearDiscount",
     "LinearZero",
+    "CubicSplineRT",
+    "CubicZero",
+    "MonotoneCubicRT",
+    "hyman_slopes",
     "discrete_forwards",
 ]
