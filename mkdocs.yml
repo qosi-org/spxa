@@ -67,6 +67,7 @@ nav:
       - Copulas & dependence: theory/copulas.md
       - Stochastic control: theory/stochastic_control.md
       - PDE & PIDE methods: theory/pde.md
+      - Market conventions: theory/market.md
       - Estimation & calibration: theory/calibration.md
   - Tutorials:
       - First composition: tutorials/01_first_composition.ipynb

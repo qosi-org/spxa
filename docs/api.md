@@ -169,6 +169,12 @@ the running library. All signatures are exact.
    - [Two-Factor ADI](#two-factor-adi)
    - [Monte Carlo, Risk & Graph Bridges](#monte-carlo-risk-graph-bridges)
    - [Verification & References](#verification-references)
+20. [Market Conventions (`spxa.market`)](#market-conventions-spxamarket)
+   - [Dates, Day Counts & Calendars](#dates-day-counts-calendars)
+   - [Schedules](#schedules)
+   - [Curves & Equity Forwards](#curves-equity-forwards)
+   - [Option Formulas & Implied Volatility](#option-formulas-implied-volatility)
+   - [Quotes, Arbitrage, Parity & Carry](#quotes-arbitrage-parity-carry)
 
 ---
 
@@ -5059,3 +5065,39 @@ Finite-difference solvers for pricing equations, transition densities and expone
   - Jumps: `merton_price`.
   - Short rate: `vasicek_bond`, `vasicek_bond_option`, `cir_bond`, `cir_bond_option`.
   - Two assets: `margrabe_price`, `spread_option_price`.
+
+## Market Conventions (`spxa.market`)
+
+Dates, accrual conventions, calendars, schedules, curves, option formulas, implied volatility and quote handling shared by `spxa.rates` and `spxa.vol`. The theory is in [Market conventions](theory/market.md). Dates may be `datetime.date`, `datetime.datetime`, ISO strings or `numpy.datetime64`.
+
+### Dates, Day Counts & Calendars
+- `to_date(value)`, `add_months(d, months, end_of_month_rule=False)`, `add_tenor(d, tenor, end_of_month_rule=False)`, `end_of_month(d)`, `is_end_of_month(d)`, `days_between(start, end)`, `is_leap_year(year)`, `days_in_month(year, month)`, `days_in_year(year)`.
+- `Tenor(spec)`: parses `"3M"`, `"1Y6M"`, `"2W"`, `"10D"`; supports negation, integer multiples, equality and `.months` (month-based tenors) / `.days` (day- and week-based tenors).
+- `DayCount(name)` with `.year_fraction(start, end, **kw)` and `.day_count(start, end)`. Conventions: `ACT/360`, `ACT/365F`, `ACT/ACT ISDA`, `ACT/ACT ICMA` (keywords `ref_start`, `ref_end`, `frequency`), `30/360` (Bond Basis), `30/360 US`, `30E/360`, `30E/360 ISDA` (keyword `termination`), `BUS/252` (keyword `calendar`). Functional forms `year_fraction(start, end, convention, **kw)` and `day_count(...)`; `available_day_counts()`.
+- `Calendar(name="WEEKENDS", extra_holidays=(), extra_business_days=())` for `TARGET`, `US-FED`, `US-SIFMA` (SOFR), `UK` and `WEEKENDS`. Methods: `is_business_day`, `is_holiday`, `holidays(start, end)`, `business_days_between(start, end)`, `next_business_day`, `previous_business_day`, `add_business_days(d, n)`, `with_holidays(...)`, `with_business_days(...)`. `JointCalendar(calendars, rule="holiday_if_any"|"holiday_if_all")`, `get_calendar(spec)` (a name, a calendar or a list for a joint calendar), `available_calendars()` and `easter_sunday(year)`.
+
+### Schedules
+- `adjust(d, calendar="WEEKENDS", convention="MF")`: conventions `F`, `MF`, `P`, `MP`, `U` (long names accepted); `available_business_day_conventions()`.
+- `Schedule(effective, termination, tenor="6M", calendar="WEEKENDS", convention="MF", termination_convention=None, stub="short_front", end_of_month=False, first_date=None, next_to_last_date=None)`: stubs `short_front`, `long_front`, `short_back`, `long_back`. It is a sequence of adjusted dates with `.periods()` (a list of `AccrualPeriod` holding adjusted, unadjusted and reference dates), `.year_fractions(day_count)`, `.is_regular()` and `.frequency`.
+
+### Curves & Equity Forwards
+- `discount_from_rate(rate, t, compounding="continuous")` and `rate_from_discount(df, t, compounding)`: compounding `"continuous"`, `"simple"` or a frequency per year.
+- `YieldCurve` (abstract): `discount(t)`, `zero_rate(t, compounding)`, `forward_rate(t1, t2, compounding="simple")`, `instantaneous_forward(t)` and `shifted(spread)`. Times are year fractions or dates (with `reference_date`).
+- `FlatCurve(rate, compounding="continuous", reference_date=None, day_count="ACT/365F")` and `InterpolatedDiscountCurve(times, discounts, ...)` (log-linear).
+- `Dividend(time, amount, kind="cash"|"proportional")` and `EquityForward(spot, discount, dividend_yield=None, repo=None, dividends=())` with `forward(t)`, `discount(t)` and `dividend_pv(t)`.
+
+### Option Formulas & Implied Volatility
+- `black_price(F, K, T, sigma, df=1.0, option="call")` and `black_greeks(...)`: a dictionary with price, `delta` (forward), `gamma`, `vega`, `theta`, `vanna`, `volga`, `dual_delta` and `dual_gamma`. All arguments broadcast; `option` may be `"call"`/`"put"`, booleans or ±1.
+- `bachelier_price(F, K, T, sigma_n, df=1.0, option="call")` and `bachelier_greeks(...)`.
+- `shifted_black_price(F, K, T, sigma, shift, df=1.0, option="call")` and `shifted_black_greeks(...)`.
+- `black_scholes_price(S, K, T, r, sigma, q=0.0, option="call")` and `black_scholes_greeks(...)` (spot delta, gamma, vega, theta, rho, epsilon).
+- `implied_black_volatility(price, F, K, T, df=1.0, option="call", errors="nan"|"raise")` and `implied_normal_volatility(...)`: machine-precision inversion, vectorised; prices outside the arbitrage bounds give `NaN` or raise. `normalised_black_call(x, s)` is the normalised price $b(x, s)$.
+
+### Quotes, Arbitrage, Parity & Carry
+- `OptionQuote(strike, option, bid=None, ask=None, last=None, volume=None, open_interest=None)` with `mid`, `spread`, `relative_spread` and `two_sided`.
+- `OptionChain(expiry, quotes, forward=None, discount=None, spot=None, valuation_date=None, day_count="ACT/365F")`: `expiry` is a year fraction or a date. Also `OptionChain.from_arrays(expiry, strikes, call_bid, call_ask, put_bid, put_ask, **kw)`. Methods: `T`, `strikes`, `calls()`, `puts()`, `mids(option)`, `pairs()`, `filter(min_bid, max_relative_spread, two_sided, strike_range, min_open_interest)`, `otm(forward)`, `implied_vols(forward, discount, model="black"|"normal", which="mid"|"bid"|"ask", otm_only=True)` and `to_market_slice()` (a `spxa.calibration.surface.data.MarketSlice`).
+- `OptionSurfaceQuotes(chains, spot=None)`: sorted by expiry; `expiries`, `filter(**criteria)` and `from_records(records, spot, **chain_kwargs)`.
+- `check_call_prices(strikes, calls, forward, discount=1.0, expiry=nan, tol=0.0)`, `check_calendar_arbitrage(slices, tol=0.0)` and `check_surface_quotes(surface, forwards=None, discounts=None, tol=0.0, use="otm")` return an `ArbitrageReport` (truthy when arbitrage-free) of `ArbitrageViolation(kind, expiry, strikes, amount)`. Kinds: `lower_bound`, `upper_bound`, `call_spread`, `put_spread`, `butterfly`, `calendar`. `call_prices_from_chain(chain, forward, discount, use="otm"|"calls")`.
+- `implied_forward(chain, discount=None, n_strikes=None, weights="spread"|"equal", outlier_threshold=4.0, max_iter=10)` returns a `ParityFit(forward, discount, strikes, residuals, rejected, discount_fitted)` with `n` and `rmse`. `implied_forwards(surface, discounts=None, **kw)`.
+- `implied_carry(spot, forward, T)`, `implied_dividend_yield(spot, forward, T, repo_discount)` and `implied_repo_rate(spot, forward, T, dividend_yield=0.0)`.
+- `ImpliedForwardCurve(spot, times, forwards, discounts=None)`: `forward(t)`, `carry(t)`, `discount_curve()`, `dividend_curve()`, `dividend_yield(t)` and `to_equity_forward()`; constructors `from_parity_fits(spot, times, fits)` and `from_surface(surface, spot=None, **kw)`.
