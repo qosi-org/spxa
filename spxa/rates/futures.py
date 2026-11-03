@@ -412,6 +412,8 @@ class OvernightFuture:
         """``futures rate - forward rate``, exact in Hull–White unless ``convexity`` is set."""
         if self.convexity is not None:
             return self.convexity
+        if sigma == 0.0:
+            return 0.0
         acc, obs, weights, _ = observation_schedule(self.index, self.start, self.end)
         bounds = [*acc[1:], self.end]
         getter = fixings.get if fixings is not None else (lambda d: None)
