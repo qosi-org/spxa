@@ -352,6 +352,32 @@ def _monotone_convex_g(
     return g, G
 
 
+def _monotone_convex_scalar(x: float, g0: float, g1: float) -> tuple[float, float]:
+    """Scalar version of :func:`_monotone_convex_g` (same cases, plain floats)."""
+    if g0 == 0.0 and g1 == 0.0:
+        return 0.0, 0.0
+    if (g0 < 0 and -g0 / 2 <= g1 <= -2 * g0) or (g0 > 0 and -g0 / 2 >= g1 >= -2 * g0):
+        g = g0 * (1 - 4 * x + 3 * x * x) + g1 * (-2 * x + 3 * x * x)
+        return g, g0 * (x - 2 * x * x + x**3) + g1 * (x**3 - x * x)
+    if (g0 < 0 and g1 > -2 * g0) or (g0 > 0 and g1 < -2 * g0):
+        eta = (g1 + 2 * g0) / (g1 - g0)
+        u, d = max(x - eta, 0.0), (1 - eta) ** 2
+        return g0 + (g1 - g0) * u * u / d, g0 * x + (g1 - g0) * u**3 / (3 * d)
+    if (g0 > 0 and -g0 / 2 < g1 < 0) or (g0 < 0 and 0 < g1 < -g0 / 2):
+        eta = 3 * g1 / (g1 - g0)
+        u, e2 = max(eta - x, 0.0), eta * eta
+        return g1 + (g0 - g1) * u * u / e2, g1 * x + (g0 - g1) * (eta**3 - u**3) / (3 * e2)
+    eta = g1 / (g0 + g1)
+    A = -g0 * g1 / (g0 + g1)
+    lft, rgt = max(eta - x, 0.0), max(x - eta, 0.0)
+    e2, d = eta * eta, (1 - eta) ** 2
+    left = (g0 - A) * (lft * lft / e2 if e2 > 0 else float(x <= 0))
+    right = (g1 - A) * (rgt * rgt / d if d > 0 else float(x >= 1))
+    Gl = (g0 - A) * ((eta**3 - lft**3) / (3 * e2) if e2 > 0 else 0.0)
+    Gr = (g1 - A) * (rgt**3 / (3 * d) if d > 0 else 0.0)
+    return A + left + right, A * x + Gl + Gr
+
+
 class _MonotoneConvex(FittedInterpolation):
     def __init__(self, times: np.ndarray, logp: np.ndarray, positivity: bool) -> None:
         super().__init__(times, logp)
@@ -377,7 +403,12 @@ class _MonotoneConvex(FittedInterpolation):
         a, h = self.times[i - 1], np.diff(self.times)[i - 1]
         x = (t - a) / h
         fd = self.fd[i - 1]
-        g, G = _monotone_convex_g(x, self.f[i - 1] - fd, self.f[i] - fd)
+        g0, g1 = self.f[i - 1] - fd, self.f[i] - fd
+        if x.size == 1:  # scalar fast path: curve.discount(date) in pricing loops
+            gs, Gs = _monotone_convex_scalar(float(x[0]), float(g0[0]), float(g1[0]))
+            g, G = np.array([gs]), np.array([Gs])
+        else:
+            g, G = _monotone_convex_g(x, g0, g1)
         return self.logp[i - 1] - h * (fd * x + G), fd + g
 
 

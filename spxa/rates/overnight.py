@@ -36,6 +36,7 @@ or inside each daily factor (``"inclusive"``).
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 from dataclasses import dataclass
 from typing import Callable, Mapping, Optional, Union
 
@@ -106,9 +107,25 @@ def observation_schedule(
 ) -> tuple[list[_dt.date], list[_dt.date], np.ndarray, float]:
     """Accrual dates, observation dates, weights and total accrual of a period.
 
-    See the module docstring for the conventions.
+    See the module docstring for the conventions. Schedules depend only on
+    the calendar, so they are cached; the returned containers are fresh
+    copies.
     """
-    s, e = to_date(start), to_date(end)
+    acc, obs, w, total = _observation_schedule(
+        index, to_date(start), to_date(end), lookback, lockout, observation_shift
+    )
+    return list(acc), list(obs), w.copy(), total
+
+
+@functools.lru_cache(maxsize=8192)
+def _observation_schedule(
+    index: OvernightIndex,
+    s: _dt.date,
+    e: _dt.date,
+    lookback: int,
+    lockout: int,
+    observation_shift: bool,
+) -> tuple[tuple[_dt.date, ...], tuple[_dt.date, ...], np.ndarray, float]:
     if e <= s:
         raise ValueError("end must be after start")
     if lookback < 0 or lockout < 0:
@@ -147,7 +164,8 @@ def observation_schedule(
         lock_date = cal.add_business_days(e, -lockout)
         obs = [o if o <= lock_date else lock_date for o in obs]
     accrual_dates = lo
-    return accrual_dates, obs, weights, float(total)
+    weights.setflags(write=False)
+    return tuple(accrual_dates), tuple(obs), weights, float(total)
 
 
 def compounded_overnight_rate(
@@ -290,7 +308,8 @@ def projected_overnight_rate(
         growth *= 1.0 + v * w[j]
         j += 1
     if j < len(obs):
-        if acc[j] != obs[j] or any(getter(o) is not None for o in obs[j:]):
+        gaps = fixings is not None and any(getter(o) is not None for o in obs[j:])
+        if acc[j] != obs[j] or gaps:
             # holiday start or gaps in the fixings: fall back to the daily product
             return compounded_overnight_rate(
                 index, start, end, fixings, curve_projection(index, curve), spread=spread

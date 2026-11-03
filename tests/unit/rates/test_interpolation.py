@@ -282,3 +282,20 @@ def test_monotone_convex_positivity_collar() -> None:
         [-math.log(0.94) / 2] * 2
     )
     assert repr(MonotoneConvex(True)) == "MonotoneConvex(positivity=True)"
+
+
+def test_monotone_convex_scalar_path_matches_vector() -> None:
+    from spxa.rates.interpolation import _monotone_convex_scalar
+
+    rng = np.random.default_rng(11)
+    cases = [(0.0, 0.0), (1.0, -2.0), (-1.0, 2.0), (1.0, -0.5), (0.0, 1.0), (1.0, 0.0)]
+    cases += [tuple(v) for v in rng.normal(size=(300, 2))]
+    for g0, g1 in cases:
+        for x in (0.0, 0.13, 0.5, 0.87, 1.0):
+            gv, Gv = _monotone_convex_g(np.array([x]), np.array([g0]), np.array([g1]))
+            gs, Gs = _monotone_convex_scalar(x, g0, g1)
+            assert gs == pytest.approx(gv[0], abs=1e-15) and Gs == pytest.approx(Gv[0], abs=1e-15)
+    t = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    c = PiecewiseCurve.from_zero_rates(t, [0.0275, 0.04, 0.0475, 0.05, 0.0475], MonotoneConvex())
+    s = np.linspace(0, 6, 61)
+    assert np.array([c.discount(float(v)) for v in s]) == pytest.approx(c.discount(s), rel=1e-15)
