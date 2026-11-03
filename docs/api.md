@@ -175,6 +175,11 @@ the running library. All signatures are exact.
    - [Curves & Equity Forwards](#curves-equity-forwards)
    - [Option Formulas & Implied Volatility](#option-formulas-implied-volatility)
    - [Quotes, Arbitrage, Parity & Carry](#quotes-arbitrage-parity-carry)
+21. [Interest Rates (`spxa.rates`)](#interest-rates-spxarates)
+   - [Indices & Overnight Compounding](#indices-overnight-compounding)
+   - [Cashflows, Legs & Pricing](#cashflows-legs-pricing)
+   - [Money Market & Futures](#money-market-futures)
+   - [Swaps & Bonds](#swaps-bonds)
 
 ---
 
@@ -5101,3 +5106,31 @@ Dates, accrual conventions, calendars, schedules, curves, option formulas, impli
 - `implied_forward(chain, discount=None, n_strikes=None, weights="spread"|"equal", outlier_threshold=4.0, max_iter=10)` returns a `ParityFit(forward, discount, strikes, residuals, rejected, discount_fitted)` with `n` and `rmse`. `implied_forwards(surface, discounts=None, **kw)`.
 - `implied_carry(spot, forward, T)`, `implied_dividend_yield(spot, forward, T, repo_discount)` and `implied_repo_rate(spot, forward, T, dividend_yield=0.0)`.
 - `ImpliedForwardCurve(spot, times, forwards, discounts=None)`: `forward(t)`, `carry(t)`, `discount_curve()`, `dividend_curve()`, `dividend_yield(t)` and `to_equity_forward()`; constructors `from_parity_fits(spot, times, fits)` and `from_surface(surface, spot=None, **kw)`.
+
+## Interest Rates (`spxa.rates`)
+
+Interest-rate instruments on real calendar dates, priced on separate discount and projection curves (any `spxa.market.YieldCurve`). The theory is in [Interest rates](theory/rates.md).
+
+### Indices & Overnight Compounding
+- `OvernightIndex(name, currency, day_count="ACT/360", calendar="WEEKENDS", publication_lag=1)` with `fixing_dates(start, end)`, `next_fixing_date(d)` and `accrual(d)`; `IborIndex(name, currency, tenor, day_count="ACT/360", calendar="TARGET", fixing_days=2, convention="MF", end_of_month=True)` with `value_date`, `fixing_date`, `maturity_date` and `accrual`. Presets `SOFR`, `ESTR`, `SONIA`, `EURIBOR1M`, `EURIBOR3M`, `EURIBOR6M`, `EURIBOR12M`; `get_index(name)` and `available_indices()`.
+- `FixingHistory(index, fixings)` keyed by fixing date: `from_pairs`, `add`, `get`, `last_date`, `as_mapping`.
+- `compounded_overnight_rate(index, start, end, fixings=None, projection=None, lookback=0, lockout=0, observation_shift=False, spread=0.0, spread_compounding="exclusive", method="compounded"|"averaged")` returns a `CompoundedRate` (rate, accrual, dates, rates, weights, `n_fixed`, `growth_factor`). `observation_schedule(...)` exposes the dates and weights.
+- `forward_overnight_rate(index, curve, d)`, `curve_projection(index, curve)` and `projected_overnight_rate(index, start, end, curve, fixings=None, ...)` (telescoping shortcut when no lookback, shift or lockout applies).
+
+### Cashflows, Legs & Pricing
+- Coupons: `FixedCoupon`, `IborCoupon` (`use_index_dates=True` projects over the index's value and maturity dates), `OvernightCoupon` (ISDA conventions as above) and `SimpleCashflow`; each has `payment_date` and `amount(projection, fixings)`.
+- `fixed_leg(schedule, notional, rate, day_count="30/360", payment_lag=0, payment_calendar=None)`, `ibor_leg(schedule, notional, index, spread=0.0, gearing=1.0, day_count=None, payment_lag=0, use_index_dates=True)` and `overnight_leg(schedule, notional, index, spread=0.0, payment_lag=0, ...)`; `notional` is a number or one value per period.
+- `leg_pv(leg, discount, projection=None, fixings=None, valuation_date=None)`, `leg_annuity(leg, discount, valuation_date=None)` and `cashflow_table(...)` (rows with dates, accrual, rate, amount, discount factor and PV). Coupons paid on or before the valuation date are excluded.
+
+### Money Market & Futures
+- `Deposit(start, end, rate, day_count="ACT/360", notional=1.0)` and `Deposit.from_tenor(trade_date, tenor, rate, calendar="TARGET", spot_lag=2, ...)`: `implied_rate(curve)`, `pv(curve)`.
+- `FRA(start, end, strike, index=None, day_count="ACT/360", notional=1.0, payer=True)` and `FRA.from_index(index, trade_date, start_tenor, strike, notional=1.0, payer=True)` (e.g. `start_tenor="3M"` for a 3×6 on a 3M index): `forward_rate`, `settlement_amount(fixing)`, `implied_rate`, `pv(discount, projection, fixings)`.
+- IMM helpers `imm_date(year, month)`, `is_imm_date`, `next_imm_date`, `imm_code`, `imm_from_code`.
+- `RateFuture(start, end, price, index=None, day_count="ACT/360", convexity=None)` and `RateFuture.from_imm(index, imm, price)`: `forward_rate`, `convexity_adjustment(projection, a, sigma)`, `implied_rate`, `implied_price`, `convexity_adjusted_forward(a, sigma, t1, t2)`. Convexity functions `hull_white_futures_convexity(t1, t2, a, sigma)` and `hull_white_rate_convexity(...)`.
+- `OvernightFuture(start, end, price, index=SOFR, method="compounded"|"averaged", convexity=None)`, `OvernightFuture.from_imm(imm, price)` (3M) and `OvernightFuture.monthly(year, month, price)` (1M): `forward_rate(projection, fixings)`, `convexity_adjustment(projection, a, sigma, fixings)`, `implied_rate`, `implied_price`. Exact Hull–White pieces: `hull_white_compounding_covariance(t, T, a, sigma)`, `hull_white_discrete_compounded_convexity(times, a, sigma)` and `hull_white_compounded_convexity(ts, te, a, sigma)`.
+
+### Swaps & Bonds
+- `Swap(fixed, floating, payer=True)`: `fixed_leg_pv`, `floating_leg_pv`, `annuity`, `pv(discount, projection, fixings, valuation_date)`, `par_rate`, `par_spread`, `with_fixed_rate(rate)`, `pv01`, `dv01(discount, projection, fixings, valuation_date, bump=1e-4)`, `start`, `maturity`.
+- `ois_swap(trade_date, tenor, fixed_rate, index=SOFR, notional=1.0, payer=True, frequency="1Y", payment_lag=2, spot_lag=2, fixed_day_count=None, forward_start=None, spread=0.0)` and `vanilla_swap(trade_date, tenor, fixed_rate, index=EURIBOR6M, notional=1.0, payer=True, fixed_tenor="1Y", fixed_day_count="30/360", float_tenor=None, spot_lag=None, forward_start=None, spread=0.0, use_index_dates=True)`. `notional` may be a number, one value per period, or a function of the accrual start such as `step_notional(dates, values)` or `linear_notional(start, end, initial, final=0.0)`.
+- `BasisSwap(first, second)` with `leg_pvs`, `pv` and `par_spread`; `basis_swap(trade_date, tenor, first, second, spread=0.0, notional=1.0, first_tenor=None, second_tenor=None, spot_lag=2, payment_lag=0, forward_start=None, use_index_dates=True)` (spread on the first leg).
+- `FixedRateBond(effective, maturity, coupon, frequency="6M", day_count="ACT/ACT ICMA", calendar="US-SIFMA", settlement_days=1, face=100.0, first_coupon=None)`: `cashflows()` (`BondCashflow` rows), `settlement_date(trade_date)`, `accrued_interest(settle)`, `dirty_price(y, settle)`, `clean_price(y, settle)`, `yield_from_clean(clean, settle)`, `macaulay_duration`, `modified_duration`, `convexity`, `dirty_price_from_curve(curve, settle, z_spread=0.0)` and `z_spread(clean, curve, settle)`.
