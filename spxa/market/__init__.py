@@ -4,6 +4,9 @@ spxa.market — market conventions and building blocks shared by
 
 Dates and tenors
     :func:`to_date`, :func:`add_months`, :func:`add_tenor`, :class:`Tenor`.
+Day counts
+    :class:`DayCount`, :func:`year_fraction`, :func:`day_count` (ACT/360,
+    ACT/365F, ACT/ACT ISDA and ICMA, the 30/360 family, BUS/252).
 """
 
 from spxa.market.dates import (
@@ -19,6 +22,7 @@ from spxa.market.dates import (
     is_leap_year,
     to_date,
 )
+from spxa.market.daycount import DayCount, available_day_counts, day_count, year_fraction
 
 __all__ = [
     # dates
@@ -33,4 +37,9 @@ __all__ = [
     "is_end_of_month",
     "is_leap_year",
     "to_date",
+    # day counts
+    "DayCount",
+    "available_day_counts",
+    "day_count",
+    "year_fraction",
 ]
