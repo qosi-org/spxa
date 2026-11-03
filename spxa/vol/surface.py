@@ -190,6 +190,60 @@ class VolSurface:
         up, dn = self.implied_vol_k(np.array([h, -h]), T)
         return float((up - dn) / (2 * h))
 
+    # ---------------------------------------------------------------- greeks
+    def greeks(
+        self,
+        K: Any,
+        T: float,
+        option: Any = "call",
+        dynamics: str = "sticky_strike",
+        bump: float = 1e-4,
+    ) -> dict[str, Any]:
+        r"""Forward delta and gamma under a smile dynamic, plus vega.
+
+        When the forward moves to :math:`F(1 + h)`:
+
+        ``"sticky_strike"``
+            :math:`\sigma(K, T)` stays put, so delta and gamma are Black's
+            at the surface volatility.
+        ``"sticky_moneyness"``
+            :math:`\sigma` is a function of :math:`k = \log(K/F)` and moves
+            with the forward, which gives
+            :math:`\Delta = \Delta_{BS} - \mathcal V_{BS}\,\sigma_k/F`.
+
+        Greeks are taken by central bumps of the forward (relative size
+        ``bump``) at a fixed discount factor. ``delta`` and ``gamma`` are
+        with respect to :math:`F`; ``vega`` is for a parallel shift of
+        implied volatility. Deltas are per unit of forward; multiply by
+        :math:`F/S` for spot deltas under proportional carry.
+        """
+        if dynamics not in ("sticky_strike", "sticky_moneyness"):
+            raise ValueError("dynamics must be 'sticky_strike' or 'sticky_moneyness'")
+        if T <= 0:
+            raise ValueError("T must be positive")
+        KK = np.asarray(K, float)
+        F = float(self.forward(T))
+        D = float(self.discount(T))
+        sig0 = np.asarray(self.implied_vol(KK, T), float)
+
+        def value(Fb: float, dsig: float = 0.0) -> np.ndarray:
+            if dynamics == "sticky_strike":
+                sig = sig0
+            else:
+                sig = np.asarray(self.implied_vol_k(np.log(KK / Fb), T), float)
+            return np.asarray(black_price(Fb, KK, T, sig + dsig, D, option), float)
+
+        h = bump * F
+        up, mid, dn = value(F + h), value(F), value(F - h)
+        dv = 1e-4
+        vega = (value(F, dv) - value(F, -dv)) / (2 * dv)
+        return {
+            "price": _out(mid),
+            "delta": _out((up - dn) / (2 * h)),
+            "gamma": _out((up - 2 * mid + dn) / (h * h)),
+            "vega": _out(vega),
+        }
+
     # ----------------------------------------------------------------- delta
     def _carry(self, T: float) -> float:
         spot = getattr(self.forward_curve, "spot", None)
