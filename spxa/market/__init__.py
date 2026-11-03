@@ -25,6 +25,9 @@ Implied volatility
 Quotes
     :class:`OptionQuote`, :class:`OptionChain` (mids, filters, OTM selection,
     implied vols) and :class:`OptionSurfaceQuotes`.
+Static arbitrage
+    :func:`check_call_prices` (bounds, vertical spreads, butterflies),
+    :func:`check_calendar_arbitrage`, :func:`check_surface_quotes`.
 """
 
 from spxa.market.dates import (
@@ -39,6 +42,14 @@ from spxa.market.dates import (
     is_end_of_month,
     is_leap_year,
     to_date,
+)
+from spxa.market.arbitrage import (
+    ArbitrageReport,
+    ArbitrageViolation,
+    call_prices_from_chain,
+    check_calendar_arbitrage,
+    check_call_prices,
+    check_surface_quotes,
 )
 from spxa.market.black import (
     bachelier_greeks,
@@ -136,4 +147,11 @@ __all__ = [
     "OptionChain",
     "OptionQuote",
     "OptionSurfaceQuotes",
+    # static arbitrage
+    "ArbitrageReport",
+    "ArbitrageViolation",
+    "call_prices_from_chain",
+    "check_calendar_arbitrage",
+    "check_call_prices",
+    "check_surface_quotes",
 ]
