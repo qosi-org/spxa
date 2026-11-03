@@ -43,6 +43,7 @@ from scipy.special import erfcx, erfinv, log_ndtr
 
 __all__ = [
     "implied_black_volatility",
+    "implied_normal_volatility",
     "normalised_black_call",
 ]
 
@@ -51,6 +52,7 @@ _SQRT_HALF_PI = math.sqrt(0.5 * math.pi)
 _EPS = np.finfo(float).eps
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(24)
 _GL_PANELS = 24
+_LAG_X, _LAG_W = np.polynomial.laguerre.laggauss(60)
 
 
 def _phi(z: float) -> float:
@@ -254,4 +256,98 @@ def implied_black_volatility(
         if math.isnan(s) and errors == "raise":
             raise ValueError(f"no implied volatility for price {pi}")
         out[idx] = s / math.sqrt(ti)
+    return float(out) if out.ndim == 0 else out
+
+
+# ----------------------------------------------------------------------
+# Normal (Bachelier) implied volatility
+# ----------------------------------------------------------------------
+
+
+def _log_psi_neg(u: float) -> float:
+    r"""``log psi(-u)`` for ``u >= 0`` with :math:`\psi(d) = d\Phi(d) + \varphi(d)`.
+
+    For moderate ``u`` the direct form :math:`\varphi(u)(1 - uM(u))` with the
+    Mills ratio :math:`M(u) = \Phi(-u)/\varphi(u)` is accurate. For large
+    ``u`` it cancels, and the positive representation
+
+    .. math::
+        \psi(-u) = \frac{\varphi(u)}{u}\int_0^\infty
+        M\!\left(u + \tfrac{w}{u}\right) e^{-w - w^2/(2u^2)}\,dw
+
+    is evaluated by Gauss–Laguerre quadrature.
+    """
+    if u <= 4.0:
+        mills = _SQRT_HALF_PI * float(erfcx(u / math.sqrt(2.0)))
+        return _log_phi(u) + math.log(1.0 - u * mills)
+    w = _LAG_X
+    z = u + w / u
+    vals = _SQRT_HALF_PI * erfcx(z / math.sqrt(2.0)) * np.exp(-0.5 * (w / u) ** 2)
+    return _log_phi(u) - math.log(u) + math.log(float(np.dot(_LAG_W, vals)))
+
+
+def _implied_normal_scalar(v: float, a: float) -> float:
+    """Total normal volatility ``sd`` with ``sd * psi(-a/sd) = v`` (``a >= 0``)."""
+    if v <= 0.0:
+        return 0.0
+    if a == 0.0:
+        return v * _SQRT_2PI
+    # in u = a / sd: g(u) = psi(-u) / u = v / a, strictly decreasing from +inf to 0
+    log_target = math.log(v / a)
+
+    def log_g(u: float) -> float:
+        return _log_psi_neg(u) - math.log(u)
+
+    def dlog_g(u: float, log_val: float) -> float:
+        # d/du log psi(-u) = -Phi(-u)/psi(-u); Phi(-u) = phi(u) M(u)
+        mills = _SQRT_HALF_PI * float(erfcx(u / math.sqrt(2.0)))
+        return -math.exp(_log_phi(u) + math.log(mills) - _log_psi_neg(u)) - 1.0 / u
+
+    # solve the increasing function -log g in u
+    lo, hi = 0.0, 1.0
+    while -log_g(hi) < -log_target:
+        lo, hi = hi, 2.0 * hi
+        if hi > 1e8:
+            return math.nan
+    u0 = 0.5 * (lo + hi) if lo > 0 else hi / 2
+    u = _solve(-log_target, lambda x: -log_g(x), lambda x, val: -dlog_g(x, -val), u0, lo, hi)
+    return a / u
+
+
+def implied_normal_volatility(
+    price: Any, F: Any, K: Any, T: Any, df: Any = 1.0, option: Any = "call", errors: str = "nan"
+) -> Any:
+    r"""Bachelier (normal) implied volatility.
+
+    Parameters
+    ----------
+    price, F, K, T, df : array-like
+        Premium, forward, strike (any sign), expiry and discount factor.
+    option : str, bool array or +/-1 array
+    errors : {"nan", "raise"}
+        Prices below the discounted intrinsic value give NaN or raise.
+
+    Returns
+    -------
+    float or ndarray
+        :math:`\sigma_N` in absolute (price) units per square-root year.
+    """
+    if errors not in ("nan", "raise"):
+        raise ValueError("errors must be 'nan' or 'raise'")
+    arrs = np.broadcast_arrays(*(np.asarray(v, dtype=float) for v in (price, F, K, T, df)))
+    p, f, k, t, d = arrs
+    eta = _as_eta(option, p.shape)
+    out = np.empty(p.shape)
+    for idx in np.ndindex(p.shape):
+        pi, fi, ki, ti, di, ei = (float(a[idx]) for a in (p, f, k, t, d, eta))
+        if ti <= 0 or di <= 0:
+            raise ValueError("T and df must be positive")
+        intrinsic = max(ei * (fi - ki), 0.0)
+        v = pi / di - intrinsic
+        if v < -8 * _EPS * max(1.0, abs(pi / di)):
+            if errors == "raise":
+                raise ValueError(f"price {pi} is below the intrinsic value")
+            out[idx] = math.nan
+            continue
+        out[idx] = _implied_normal_scalar(max(v, 0.0), abs(fi - ki)) / math.sqrt(ti)
     return float(out) if out.ndim == 0 else out
