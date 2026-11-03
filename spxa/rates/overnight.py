@@ -41,10 +41,18 @@ from typing import Callable, Mapping, Optional, Union
 
 import numpy as np
 
+from spxa.market.curves import YieldCurve
 from spxa.market.dates import DateLike, to_date
 from spxa.rates.indices import FixingHistory, OvernightIndex
 
-__all__ = ["CompoundedRate", "compounded_overnight_rate", "observation_schedule"]
+__all__ = [
+    "CompoundedRate",
+    "compounded_overnight_rate",
+    "curve_projection",
+    "forward_overnight_rate",
+    "observation_schedule",
+    "projected_overnight_rate",
+]
 
 RateSource = Union[FixingHistory, Mapping[_dt.date, float], None]
 
@@ -201,3 +209,89 @@ def compounded_overnight_rate(
     if not inclusive:
         rate += spread
     return CompoundedRate(float(rate), total, acc, obs, rates, w, n_fixed)
+
+
+# ----------------------------------------------------------------------
+# Projection from a discount curve
+# ----------------------------------------------------------------------
+
+
+def forward_overnight_rate(index: OvernightIndex, curve: YieldCurve, d: DateLike) -> float:
+    r"""Forward overnight rate for fixing date ``d`` implied by a curve.
+
+    :math:`F_i = \bigl(P(d_i)/P(d_{i+1}) - 1\bigr)/\tau_i`, with
+    :math:`d_{i+1}` the next business day and :math:`\tau_i` the index
+    day-count fraction. The curve needs a ``reference_date``.
+    """
+    d = to_date(d)
+    nxt = index.next_fixing_date(d)
+    p0 = float(curve.discount(d))
+    p1 = float(curve.discount(nxt))
+    return (p0 / p1 - 1.0) / index.dc.year_fraction(d, nxt)
+
+
+def curve_projection(index: OvernightIndex, curve: YieldCurve) -> Callable[[_dt.date], float]:
+    """``projection`` callable for :func:`compounded_overnight_rate` built from a curve."""
+    return lambda d: forward_overnight_rate(index, curve, d)
+
+
+def projected_overnight_rate(
+    index: OvernightIndex,
+    start: DateLike,
+    end: DateLike,
+    curve: YieldCurve,
+    fixings: RateSource = None,
+    lookback: int = 0,
+    lockout: int = 0,
+    observation_shift: bool = False,
+    spread: float = 0.0,
+    spread_compounding: str = "exclusive",
+) -> float:
+    r"""Compounded rate with past fixings and curve-projected future ones.
+
+    Without lookback, shift, lockout or inclusive spread, the product of
+    projected daily factors telescopes:
+
+    .. math:: \prod_{i \ge j}(1 + F_i\tau_i) = \frac{P(d_j)}{P(t_e)},
+
+    so only two discount factors are needed beyond the last fixing; the
+    result equals the day-by-day product to rounding. Otherwise the daily
+    product of :func:`compounded_overnight_rate` is used.
+    """
+    simple = (
+        lookback == 0
+        and lockout <= 1
+        and not observation_shift
+        and (spread == 0.0 or spread_compounding == "exclusive")
+    )
+    if not simple:
+        return compounded_overnight_rate(
+            index,
+            start,
+            end,
+            fixings,
+            curve_projection(index, curve),
+            lookback,
+            lockout,
+            observation_shift,
+            spread,
+            spread_compounding,
+        ).rate
+    acc, obs, w, total = observation_schedule(index, start, end)
+    getter = fixings.get if fixings is not None else (lambda d: None)
+    growth = 1.0
+    j = 0
+    while j < len(obs):
+        v = getter(obs[j])
+        if v is None:
+            break
+        growth *= 1.0 + v * w[j]
+        j += 1
+    if j < len(obs):
+        if acc[j] != obs[j] or any(getter(o) is not None for o in obs[j:]):
+            # holiday start or gaps in the fixings: fall back to the daily product
+            return compounded_overnight_rate(
+                index, start, end, fixings, curve_projection(index, curve), spread=spread
+            ).rate
+        growth *= float(curve.discount(acc[j])) / float(curve.discount(to_date(end)))
+    return (growth - 1.0) / total + spread

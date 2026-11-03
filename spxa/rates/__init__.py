@@ -6,7 +6,8 @@ Indices
     (EURIBOR 1M–12M), :class:`FixingHistory`, :func:`get_index`.
 Overnight compounding
     :func:`compounded_overnight_rate` with ISDA 2021 lookback, observation
-    shift and lockout; :func:`observation_schedule`.
+    shift and lockout; :func:`observation_schedule`; curve projection with
+    :func:`forward_overnight_rate` and :func:`projected_overnight_rate`.
 """
 
 from spxa.rates.indices import (
@@ -26,7 +27,10 @@ from spxa.rates.indices import (
 from spxa.rates.overnight import (
     CompoundedRate,
     compounded_overnight_rate,
+    curve_projection,
+    forward_overnight_rate,
     observation_schedule,
+    projected_overnight_rate,
 )
 
 __all__ = [
@@ -46,5 +50,8 @@ __all__ = [
     # overnight compounding
     "CompoundedRate",
     "compounded_overnight_rate",
+    "curve_projection",
+    "forward_overnight_rate",
     "observation_schedule",
+    "projected_overnight_rate",
 ]
