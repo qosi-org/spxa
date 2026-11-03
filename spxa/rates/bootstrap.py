@@ -30,6 +30,7 @@ from spxa.market.dates import DateLike, to_date
 from spxa.market.daycount import DayCount
 from spxa.rates.helpers import CurveHelper
 from spxa.rates.interpolation import InterpolationScheme, LogLinearDiscount, PiecewiseCurve
+from spxa.rates.turns import ForwardSpread, SpreadAdjustedCurve
 
 __all__ = ["BootstrapResult", "bootstrap_curve", "CurveSpec", "GlobalFitResult", "fit_curves"]
 
@@ -38,13 +39,19 @@ __all__ = ["BootstrapResult", "bootstrap_curve", "CurveSpec", "GlobalFitResult",
 class BootstrapResult:
     """Output of :func:`bootstrap_curve`."""
 
-    curve: PiecewiseCurve
+    curve: YieldCurve
     helpers: list[CurveHelper]
     pillars: list[_dt.date]
     residuals: np.ndarray
     passes: int
     name: str = "discount"
     known: dict[str, YieldCurve] = field(default_factory=dict)
+
+    @property
+    def base(self) -> PiecewiseCurve:
+        """The interpolated node curve (without forward spreads)."""
+        c = self.curve
+        return c.base if isinstance(c, SpreadAdjustedCurve) else c  # type: ignore[return-value]
 
     @property
     def max_residual(self) -> float:
@@ -62,8 +69,18 @@ def _curve(
     scheme: InterpolationScheme,
     ref: _dt.date,
     dc: DayCount,
-) -> PiecewiseCurve:
-    return PiecewiseCurve(times, np.exp(-x), scheme, reference_date=ref, day_count=dc)
+    spreads: Sequence[ForwardSpread] = (),
+) -> YieldCurve:
+    """Node curve with x = -log P of the *total* curve, spreads included."""
+    if not spreads:
+        return PiecewiseCurve(times, np.exp(-x), scheme, reference_date=ref, day_count=dc)
+    probe = SpreadAdjustedCurve(
+        PiecewiseCurve(times, np.ones_like(times), scheme, reference_date=ref, day_count=dc),
+        spreads,
+    )
+    base_x = x - probe.log_adjustment(times)
+    base = PiecewiseCurve(times, np.exp(-base_x), scheme, reference_date=ref, day_count=dc)
+    return SpreadAdjustedCurve(base, spreads)
 
 
 def bootstrap_curve(
@@ -75,6 +92,7 @@ def bootstrap_curve(
     day_count: str = "ACT/365F",
     max_passes: Optional[int] = None,
     tol: float = 1e-13,
+    spreads: Sequence[ForwardSpread] = (),
 ) -> BootstrapResult:
     r"""Bootstrap the curve ``name`` so that every helper reprices.
 
@@ -94,6 +112,9 @@ def bootstrap_curve(
         than ``tol``.
     tol
         Convergence tolerance on :math:`-\log P` between passes.
+    spreads
+        Known forward spreads (turn of year) laid over the interpolated
+        curve. The nodes then carry the smooth part only.
     """
     scheme = scheme if scheme is not None else LogLinearDiscount()
     known = dict(known or {})
@@ -140,14 +161,14 @@ def bootstrap_curve(
             def f(xi: float, i: int = i, h: CurveHelper = h, m: int = m) -> float:
                 trial = x[:m].copy()
                 trial[i] = xi
-                curves = {**known, name: _curve(times[:m], trial, scheme, ref, dc)}
+                curves = {**known, name: _curve(times[:m], trial, scheme, ref, dc, spreads)}
                 return h.residual(curves)
 
             x[i] = _solve(f, x[i], times[i])
         done = p + 1
         if p > 0 and np.max(np.abs(x - old)) < tol:
             break
-    curve = _curve(times, x, scheme, ref, dc)
+    curve = _curve(times, x, scheme, ref, dc, spreads)
     curves = {**known, name: curve}
     res = np.array([h.residual(curves) for h in hs])
     return BootstrapResult(curve, hs, pillars, res, done, name, known)
@@ -187,6 +208,7 @@ class CurveSpec:
     name: str
     helpers: Sequence[CurveHelper]
     scheme: InterpolationScheme = field(default_factory=LogLinearDiscount)
+    spreads: Sequence[ForwardSpread] = ()
 
 
 @dataclass
@@ -239,7 +261,7 @@ def fit_curves(
     if set(names) & set(known):
         raise ValueError("a curve is both known and fitted")
     helpers: list[CurveHelper] = []
-    layout: list[tuple[str, np.ndarray, InterpolationScheme, list[_dt.date]]] = []
+    layout: list[tuple[str, np.ndarray, InterpolationScheme, Sequence[ForwardSpread]]] = []
     nodes: list[tuple[str, _dt.date]] = []
     for s in specs:
         hs = sorted(s.helpers, key=lambda h: h.pillar)
@@ -250,7 +272,9 @@ def fit_curves(
             raise ValueError(f"two helpers of {s.name!r} share a pillar")
         if pil[0] <= ref:
             raise ValueError("pillars must be after the reference date")
-        layout.append((s.name, np.array([dc.year_fraction(ref, d) for d in pil]), s.scheme, pil))
+        layout.append(
+            (s.name, np.array([dc.year_fraction(ref, d) for d in pil]), s.scheme, s.spreads)
+        )
         helpers.extend(hs)
         nodes.extend((s.name, d) for d in pil)
     available = set(names) | set(known)
@@ -265,8 +289,8 @@ def fit_curves(
 
     def build(x: np.ndarray) -> dict[str, YieldCurve]:
         out: dict[str, YieldCurve] = dict(known)
-        for c, (name, t, scheme, _) in enumerate(layout):
-            out[name] = _curve(t, x[offs[c] : offs[c + 1]], scheme, ref, dc)
+        for c, (name, t, scheme, spr) in enumerate(layout):
+            out[name] = _curve(t, x[offs[c] : offs[c + 1]], scheme, ref, dc, spr)
         return out
 
     def residuals(x: np.ndarray, rows: Optional[np.ndarray] = None) -> np.ndarray:
