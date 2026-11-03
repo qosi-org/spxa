@@ -14,6 +14,9 @@ zero, :math:`(\mathrm{PV}_{\text{fixed}} - \mathrm{PV}_{\text{float}})/A_{\text{
 schedule, compounded in arrears with a payment lag, as for SOFR and €STR
 OIS); :func:`vanilla_swap` builds fixed-versus-IBOR swaps (EUR market
 standard: annual 30/360 fixed against the index tenor).
+
+A :class:`BasisSwap` exchanges two floating legs, e.g. EURIBOR 3M plus a
+spread against EURIBOR 6M, or €STR against EURIBOR 3M (:func:`basis_swap`).
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ from spxa.rates.cashflows import (
 from spxa.rates.indices import EURIBOR6M, SOFR, FixingHistory, IborIndex, OvernightIndex
 from spxa.rates.pricing import leg_annuity, leg_pv
 
-__all__ = ["Swap", "ois_swap", "vanilla_swap"]
+__all__ = ["BasisSwap", "Swap", "basis_swap", "ois_swap", "vanilla_swap"]
 
 
 @dataclass(frozen=True)
@@ -213,3 +216,118 @@ def vanilla_swap(
     fx = fixed_leg(fx_sch, notional, fixed_rate, fixed_day_count)
     fl = ibor_leg(fl_sch, notional, index, spread=spread, use_index_dates=use_index_dates)
     return Swap(fx, fl, payer, {"type": "IRS", "index": index.name, "tenor": tenor})
+
+
+@dataclass(frozen=True)
+class BasisSwap:
+    r"""Floating-for-floating swap: pay ``first``, receive ``second``.
+
+    The spread is quoted on the first leg; the par spread is
+    :math:`(\mathrm{PV}_2 - \mathrm{PV}_1)/A_1` with :math:`A_1` the
+    first leg's annuity. Each leg is projected from its own curve.
+    """
+
+    first: Sequence[Cashflow]
+    second: Sequence[Cashflow]
+
+    def __post_init__(self) -> None:
+        if not self.first or not self.second:
+            raise ValueError("both legs must have cashflows")
+
+    def leg_pvs(
+        self,
+        discount: YieldCurve,
+        projection1: Optional[YieldCurve] = None,
+        projection2: Optional[YieldCurve] = None,
+        fixings1: Optional[FixingHistory] = None,
+        fixings2: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> tuple[float, float]:
+        return (
+            leg_pv(self.first, discount, projection1, fixings1, valuation_date),
+            leg_pv(self.second, discount, projection2, fixings2, valuation_date),
+        )
+
+    def pv(
+        self,
+        discount: YieldCurve,
+        projection1: Optional[YieldCurve] = None,
+        projection2: Optional[YieldCurve] = None,
+        fixings1: Optional[FixingHistory] = None,
+        fixings2: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> float:
+        p1, p2 = self.leg_pvs(
+            discount, projection1, projection2, fixings1, fixings2, valuation_date
+        )
+        return p2 - p1
+
+    def par_spread(
+        self,
+        discount: YieldCurve,
+        projection1: Optional[YieldCurve] = None,
+        projection2: Optional[YieldCurve] = None,
+        fixings1: Optional[FixingHistory] = None,
+        fixings2: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> float:
+        """Spread to add to the first leg for zero PV (on top of any existing spread)."""
+        p1, p2 = self.leg_pvs(
+            discount, projection1, projection2, fixings1, fixings2, valuation_date
+        )
+        return (p2 - p1) / leg_annuity(self.first, discount, valuation_date)
+
+    @property
+    def maturity(self) -> _dt.date:
+        return max(c.payment_date for c in list(self.first) + list(self.second))
+
+
+def _float_leg(
+    sch: Schedule,
+    notional: float,
+    index: "IborIndex | OvernightIndex",
+    spread: float,
+    payment_lag: int,
+    use_index_dates: bool,
+) -> list[Cashflow]:
+    if isinstance(index, IborIndex):
+        return ibor_leg(
+            sch,
+            notional,
+            index,
+            spread=spread,
+            payment_lag=payment_lag,
+            use_index_dates=use_index_dates,
+        )
+    return overnight_leg(sch, notional, index, spread=spread, payment_lag=payment_lag)
+
+
+def basis_swap(
+    trade_date: DateLike,
+    tenor: str,
+    first: "IborIndex | OvernightIndex",
+    second: "IborIndex | OvernightIndex",
+    spread: float = 0.0,
+    notional: float = 1.0,
+    first_tenor: Optional[str] = None,
+    second_tenor: Optional[str] = None,
+    spot_lag: int = 2,
+    payment_lag: int = 0,
+    forward_start: Optional[str] = None,
+    use_index_dates: bool = True,
+) -> BasisSwap:
+    """Basis swap paying ``first`` + ``spread`` against ``second``.
+
+    IBOR legs pay at their index tenor and overnight legs quarterly unless
+    ``first_tenor``/``second_tenor`` say otherwise; dates follow the
+    calendar of the first index.
+    """
+    cal = first.calendar
+    start, end = _dates(trade_date, tenor, cal, spot_lag, forward_start)
+
+    def leg(idx: "IborIndex | OvernightIndex", t: Optional[str], s: float) -> list[Cashflow]:
+        per = t or (idx.tenor if isinstance(idx, IborIndex) else "3M")
+        sch = Schedule(start, end, per, idx.calendar, "MF", end_of_month=True)
+        return _float_leg(sch, notional, idx, s, payment_lag, use_index_dates)
+
+    return BasisSwap(leg(first, first_tenor, spread), leg(second, second_tenor, 0.0))
