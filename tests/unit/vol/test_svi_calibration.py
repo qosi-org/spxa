@@ -6,7 +6,13 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize
 
-from spxa.vol import SVIRaw, calibrate_svi, svi_inner_fit
+from spxa.vol import (
+    SVIRaw,
+    calibrate_svi,
+    calibrate_svi_butterfly_free,
+    check_butterfly,
+    svi_inner_fit,
+)
 
 K = np.linspace(-1.0, 0.6, 25)
 TRUE = SVIRaw(0.02, 0.4, -0.5, 0.1, 0.3)
@@ -83,3 +89,37 @@ def test_validation() -> None:
         calibrate_svi(K, TRUE(K), weights=np.ones(3))
     with pytest.raises(ValueError, match="max_slope"):
         calibrate_svi(K, TRUE(K), max_slope=0.0)
+
+
+class TestButterflyFree:
+    vogt = SVIRaw(a=-0.0410, b=0.1331, rho=0.3060, m=0.3586, sigma=0.4153)
+    k = np.linspace(-1.5, 1.5, 61)
+
+    def test_negative_a_is_recovered(self) -> None:
+        # minimum variance stays positive, so a < 0 is admissible
+        fit = calibrate_svi(self.k, self.vogt(self.k))
+        assert fit.params.a == pytest.approx(-0.0410, abs=1e-8)
+        assert fit.rmse < 1e-11
+
+    def test_vogt_slice_is_repaired(self) -> None:
+        fit = calibrate_svi_butterfly_free(self.k, self.vogt(self.k))
+        assert fit.success
+        dense = check_butterfly(fit.params, np.linspace(-10, 10, 200_001))
+        assert dense.arbitrage_free and dense.min_g >= 0
+        assert not check_butterfly(self.vogt, np.linspace(-1.5, 1.5, 3001))
+        # the repair costs little: about 23 bp of total variance at worst
+        assert fit.rmse < 3e-3
+        assert np.max(np.abs(fit.params(self.k) - self.vogt(self.k))) < 6e-3
+
+    def test_noisy_vogt(self) -> None:
+        rng = np.random.default_rng(0)
+        for _ in range(3):
+            w = self.vogt(self.k) * (1 + 0.003 * rng.standard_normal(self.k.size))
+            fit = calibrate_svi_butterfly_free(self.k, w)
+            assert fit.success
+            assert check_butterfly(fit.params, np.linspace(-10, 10, 100_001))
+
+    def test_arbitrage_free_data_unchanged(self) -> None:
+        fit = calibrate_svi_butterfly_free(K, TRUE(K))
+        assert fit.success and fit.rmse < 1e-9
+        assert fit.params.to_array() == pytest.approx(TRUE.to_array(), abs=1e-7)

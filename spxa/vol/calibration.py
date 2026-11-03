@@ -13,6 +13,12 @@ Quasi-explicit SVI (Zeliade; De Marco & Martini 2009)
     bounded linear least-squares problem solved exactly, and only the two
     parameters :math:`(m, \sigma)` are searched numerically.
 
+    The paper's :math:`a \ge 0` is stronger than the positivity of the
+    minimum variance :math:`a + \sqrt{uv} \ge 0`. The inner solve first
+    allows :math:`a \ge -\max w`; if the solution has non-negative minimum
+    variance it is optimal for the exact constraint, otherwise the
+    :math:`a \ge 0` box is used.
+
     ``max_slope`` :math:`s` defaults to 2, Lee's moment bound on the
     asymptotic slope of total variance; De Marco & Martini use the weaker
     Rogers–Tehranchi bound :math:`s = 4` (pass ``max_slope=4``).
@@ -24,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import numpy as np
-from scipy.optimize import lsq_linear, minimize
+from scipy.optimize import lsq_linear, minimize, minimize_scalar
 
 from spxa.vol.svi import SVIRaw
 
@@ -69,7 +75,12 @@ def _inner(
     # w = a + u (z + y)/2 + v (z - y)/2 with u = c + d, v = c - d
     A = np.column_stack([np.ones_like(y), 0.5 * (z + y), 0.5 * (z - y)]) * sw[:, None]
     hi = max_slope * sigma
-    res = lsq_linear(A, ww * sw, bounds=([0.0, 0.0, 0.0], [ww.max(), hi, hi]), method="bvls")
+    top = float(ww.max())
+    # first allow a < 0; keep it if the minimum variance a + sqrt(u v) stays
+    # non-negative (then it is optimal), otherwise fall back to a >= 0
+    res = lsq_linear(A, ww * sw, bounds=([-top, 0.0, 0.0], [top, hi, hi]), method="bvls")
+    if res.x[0] + np.sqrt(max(res.x[1] * res.x[2], 0.0)) < 0.0:
+        res = lsq_linear(A, ww * sw, bounds=([0.0, 0.0, 0.0], [top, hi, hi]), method="bvls")
     a, u, v = (float(x) for x in res.x)
     c, d = 0.5 * (u + v), 0.5 * (u - v)
     sse = float(np.sum((A @ res.x - ww * sw) ** 2))
@@ -78,6 +89,36 @@ def _inner(
         return SVIRaw(a, 0.0, 0.0, m, sigma), sse
     rho = float(np.clip(d / c, -1.0 + 1e-15, 1.0 - 1e-15))
     return SVIRaw(a, c / sigma, rho, m, sigma), sse
+
+
+def _negative_minima(g: Any, kv: np.ndarray, tol: float = 1e-12) -> list[float]:
+    """Locations of the local minima of ``g`` where it is negative.
+
+    Every discrete local minimum on ``kv`` with a small value is refined by
+    a bounded scalar search between its neighbours, so dips narrower than
+    the scan spacing are found.
+    """
+    gv = g(kv)
+    out: list[float] = []
+    for i in range(kv.size):
+        lo, hi = max(i - 1, 0), min(i + 1, kv.size - 1)
+        if gv[i] > gv[lo] or gv[i] > gv[hi] or gv[i] > 1e-3:
+            continue
+        if lo == i or hi == i:
+            kmin, gmin = float(kv[i]), float(gv[i])
+        else:
+            res = minimize_scalar(
+                lambda t: float(g(np.array([t]))[0]),
+                bounds=(float(kv[lo]), float(kv[hi])),
+                method="bounded",
+                options={"xatol": 1e-12},
+            )
+            kmin, gmin = float(res.x), float(res.fun)
+            if gv[i] < gmin:
+                kmin, gmin = float(kv[i]), float(gv[i])
+        if gmin < -tol:
+            out.append(kmin)
+    return out
 
 
 @dataclass(frozen=True)
@@ -146,3 +187,101 @@ def calibrate_svi(
     params, sse = _inner(kk, ww, sw, float(m), float(np.exp(s)), max_slope)
     wsum = float(np.sum(sw * sw))
     return SVIFit(params, float(np.sqrt(sse / wsum)) if wsum > 0 else 0.0, sse, nfev, ok)
+
+
+def calibrate_svi_butterfly_free(
+    k: Any,
+    w: Any,
+    weights: Any = None,
+    max_slope: float = 2.0,
+    grid: Any = None,
+    initial: Optional[SVIRaw] = None,
+    min_g: float = 1e-8,
+) -> SVIFit:
+    r"""Raw SVI fit with Durrleman's condition imposed on a grid.
+
+    Starts from the quasi-explicit fit (or ``initial``) and solves
+
+    .. math:: \min \sum_i \omega_i\,(w(k_i) - w_i)^2 \quad\text{s.t.}\quad
+              g(k_j) \ge g_{\min},\; b(1 \pm \rho) \le s,\;
+              a + b\sigma\sqrt{1 - \rho^2} > 0
+
+    with SLSQP and analytic :math:`g`, on ``grid`` (default 401 points
+    covering the data and twice its width either side), in the spirit of
+    Gatheral & Jacquier (2014, §5). After each solve :math:`g` is scanned
+    on a ten times finer grid, its negative local minima are located by a
+    bounded scalar search and added as constraints (cutting planes) until
+    none remain. Slices that already satisfy the condition are returned
+    unchanged up to the solver tolerance.
+    """
+    from spxa.vol.arbitrage import durrleman_g
+
+    kk, ww, sw = _arrays(k, w, weights)
+    if grid is None:
+        span = float(kk.max() - kk.min())
+        grid = np.linspace(kk.min() - 2 * span, kk.max() + 2 * span, 401)
+    gk = np.asarray(grid, float)
+    p0 = initial if initial is not None else calibrate_svi(kk, ww, weights, max_slope).params
+    scale = float(np.sum((ww * sw) ** 2)) or 1.0
+    nfev = 0
+
+    def unpack(x: np.ndarray) -> tuple[float, float, float, float, float]:
+        return float(x[0]), float(x[1]), float(x[2]), float(x[3]), float(x[4])
+
+    def wfun(x: np.ndarray, kv: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        a, b, rho, m, sig = unpack(x)
+        y = kv - m
+        r = np.sqrt(y * y + sig * sig)
+        return a + b * (rho * y + r), b * (rho + y / r), b * sig * sig / r**3
+
+    def obj(x: np.ndarray) -> float:
+        nonlocal nfev
+        nfev += 1
+        return float(np.sum(((wfun(x, kk)[0] - ww) * sw) ** 2)) / scale
+
+    def g_on(x: np.ndarray, kv: np.ndarray) -> np.ndarray:
+        wv, d1, d2 = wfun(x, kv)
+        return np.asarray(durrleman_g(kv, np.maximum(wv, 1e-12), d1, d2))
+
+    base = [
+        {"type": "ineq", "fun": lambda x: max_slope - x[1] * (1 + x[2])},
+        {"type": "ineq", "fun": lambda x: max_slope - x[1] * (1 - x[2])},
+        {
+            "type": "ineq",
+            "fun": lambda x: x[0] + x[1] * x[4] * np.sqrt(max(1 - x[2] ** 2, 0.0)) - 1e-10,
+        },
+    ]
+    span_k = float(kk.max() - kk.min())
+    bounds = [
+        (-float(ww.max()), float(ww.max())),
+        (0.0, max_slope),
+        (-0.999999, 0.999999),
+        (float(kk.min()) - span_k, float(kk.max()) + span_k),
+        (1e-4, 10.0),
+    ]
+    fine = np.linspace(gk.min(), gk.max(), 10 * gk.size)
+    x = p0.to_array()
+    active = gk
+    ok = False
+    # cutting planes: points where g dips between grid nodes join the constraint set
+    for _ in range(12):
+        pts = active
+        cons = [{"type": "ineq", "fun": lambda x, pts=pts: g_on(x, pts) - min_g}, *base]
+        r = minimize(
+            obj,
+            x,
+            method="SLSQP",
+            bounds=bounds,
+            constraints=cons,
+            options={"ftol": 1e-14, "maxiter": 500},
+        )
+        x = r.x
+        cuts = _negative_minima(lambda kv, x=x: g_on(x, kv), fine)
+        if not cuts:
+            ok = bool(r.success)
+            break
+        active = np.union1d(active, cuts)
+    params = SVIRaw(*unpack(x))
+    sse = obj(x) * scale
+    wsum = float(np.sum(sw * sw))
+    return SVIFit(params, float(np.sqrt(sse / wsum)), sse, nfev, ok)
