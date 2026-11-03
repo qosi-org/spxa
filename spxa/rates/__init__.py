@@ -34,6 +34,10 @@ Curve construction
     :class:`CubicSplineRT`, :class:`CubicZero` and
     :class:`MonotoneCubicRT` (Hyman-filtered, :func:`hyman_slopes`) and
     Hagan–West :class:`MonotoneConvex`.
+Calibration helpers
+    :class:`DepositHelper`, :class:`FRAHelper`, :class:`FutureHelper`,
+    :class:`SwapHelper`, :class:`BasisSwapHelper` (quote, pillar, curve
+    names and model quote on a mapping of named curves).
 """
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
@@ -75,6 +79,15 @@ from spxa.rates.indices import (
     OvernightIndex,
     available_indices,
     get_index,
+)
+from spxa.rates.helpers import (
+    BasisSwapHelper,
+    CurveHelper,
+    DepositHelper,
+    FRAHelper,
+    FutureHelper,
+    SwapHelper,
+    last_curve_date,
 )
 from spxa.rates.interpolation import (
     CubicSplineRT,
@@ -186,4 +199,12 @@ __all__ = [
     "MonotoneConvex",
     "hyman_slopes",
     "discrete_forwards",
+    # calibration helpers
+    "CurveHelper",
+    "DepositHelper",
+    "FRAHelper",
+    "FutureHelper",
+    "SwapHelper",
+    "BasisSwapHelper",
+    "last_curve_date",
 ]
