@@ -38,9 +38,14 @@ Calibration helpers
     :class:`DepositHelper`, :class:`FRAHelper`, :class:`FutureHelper`,
     :class:`SwapHelper`, :class:`BasisSwapHelper` (quote, pillar, curve
     names and model quote on a mapping of named curves).
+Bootstrapping
+    :func:`bootstrap_curve` (:class:`BootstrapResult`): pillar-by-pillar
+    Brent solves, exact in one pass for local schemes and iterated for
+    non-local ones; other curves are passed as ``known``.
 """
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
+from spxa.rates.bootstrap import BootstrapResult, bootstrap_curve
 from spxa.rates.cashflows import (
     Cashflow,
     FixedCoupon,
@@ -207,4 +212,7 @@ __all__ = [
     "SwapHelper",
     "BasisSwapHelper",
     "last_curve_date",
+    # bootstrapping
+    "bootstrap_curve",
+    "BootstrapResult",
 ]
