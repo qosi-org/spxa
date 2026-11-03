@@ -14,6 +14,9 @@ Cashflows and legs
     :func:`overnight_leg`.
 Money-market instruments
     :class:`Deposit`, :class:`FRA`.
+Futures
+    :func:`imm_date`, :func:`next_imm_date`, :func:`imm_code`,
+    :func:`imm_from_code`, :class:`RateFuture` with Hull–White convexity.
 Pricing
     :func:`leg_pv`, :func:`leg_annuity`, :func:`cashflow_table` on
     separate discount and projection curves.
@@ -29,6 +32,16 @@ from spxa.rates.cashflows import (
     fixed_leg,
     ibor_leg,
     overnight_leg,
+)
+from spxa.rates.futures import (
+    RateFuture,
+    hull_white_futures_convexity,
+    hull_white_rate_convexity,
+    imm_code,
+    imm_date,
+    imm_from_code,
+    is_imm_date,
+    next_imm_date,
 )
 from spxa.rates.indices import (
     ESTR,
@@ -89,6 +102,15 @@ __all__ = [
     # instruments
     "Deposit",
     "FRA",
+    # futures
+    "RateFuture",
+    "hull_white_futures_convexity",
+    "hull_white_rate_convexity",
+    "imm_code",
+    "imm_date",
+    "imm_from_code",
+    "is_imm_date",
+    "next_imm_date",
     # pricing
     "CashflowRow",
     "cashflow_table",
