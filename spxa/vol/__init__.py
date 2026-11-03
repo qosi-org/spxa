@@ -9,8 +9,19 @@ Coordinates
     :func:`total_variance_from_price`.
 SVI
     :class:`SVIRaw`, :class:`SVINatural`, :class:`SVIJumpWings`.
+No-arbitrage diagnostics
+    :func:`durrleman_g`, :func:`risk_neutral_density`,
+    :func:`check_butterfly`, :func:`check_calendar`.
 """
 
+from spxa.vol.arbitrage import (
+    ButterflyCheck,
+    CalendarCheck,
+    check_butterfly,
+    check_calendar,
+    durrleman_g,
+    risk_neutral_density,
+)
 from spxa.vol.conventions import (
     implied_vol_from_total_variance,
     log_moneyness,
@@ -33,4 +44,11 @@ __all__ = [
     "SVIJumpWings",
     "SVINatural",
     "SVIRaw",
+    # arbitrage
+    "ButterflyCheck",
+    "CalendarCheck",
+    "check_butterfly",
+    "check_calendar",
+    "durrleman_g",
+    "risk_neutral_density",
 ]
