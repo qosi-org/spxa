@@ -16,7 +16,9 @@ Money-market instruments
     :class:`Deposit`, :class:`FRA`.
 Futures
     :func:`imm_date`, :func:`next_imm_date`, :func:`imm_code`,
-    :func:`imm_from_code`, :class:`RateFuture` with Hull–White convexity.
+    :func:`imm_from_code`, :class:`RateFuture` (term rates) and
+    :class:`OvernightFuture` (compounded 3M / averaged 1M SOFR), with exact
+    Hull–White convexity.
 Swaps
     :class:`Swap`, :func:`ois_swap`, :func:`vanilla_swap`,
     :class:`BasisSwap`, :func:`basis_swap`.
@@ -40,7 +42,11 @@ from spxa.rates.cashflows import (
     overnight_leg,
 )
 from spxa.rates.futures import (
+    OvernightFuture,
     RateFuture,
+    hull_white_compounded_convexity,
+    hull_white_compounding_covariance,
+    hull_white_discrete_compounded_convexity,
     hull_white_futures_convexity,
     hull_white_rate_convexity,
     imm_code,
@@ -110,7 +116,11 @@ __all__ = [
     "Deposit",
     "FRA",
     # futures
+    "OvernightFuture",
     "RateFuture",
+    "hull_white_compounded_convexity",
+    "hull_white_compounding_covariance",
+    "hull_white_discrete_compounded_convexity",
     "hull_white_futures_convexity",
     "hull_white_rate_convexity",
     "imm_code",
