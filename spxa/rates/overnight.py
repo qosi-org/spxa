@@ -224,6 +224,8 @@ def forward_overnight_rate(index: OvernightIndex, curve: YieldCurve, d: DateLike
     day-count fraction. The curve needs a ``reference_date``.
     """
     d = to_date(d)
+    if curve.reference_date is not None and d < curve.reference_date:
+        raise KeyError(f"missing past {index.name} fixing for {d}")
     nxt = index.next_fixing_date(d)
     p0 = float(curve.discount(d))
     p1 = float(curve.discount(nxt))
@@ -293,5 +295,7 @@ def projected_overnight_rate(
             return compounded_overnight_rate(
                 index, start, end, fixings, curve_projection(index, curve), spread=spread
             ).rate
+        if curve.reference_date is not None and obs[j] < curve.reference_date:
+            raise KeyError(f"missing past {index.name} fixing for {obs[j]}")
         growth *= float(curve.discount(acc[j])) / float(curve.discount(to_date(end)))
     return (growth - 1.0) / total + spread

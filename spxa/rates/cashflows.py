@@ -137,6 +137,9 @@ class IborCoupon:
                 return v
         if projection is None:
             raise KeyError(f"no {self.index.name} fixing for {self.fixing} and no projection curve")
+        ref = projection.reference_date
+        if ref is not None and self.fixing < ref:
+            raise KeyError(f"missing past {self.index.name} fixing for {self.fixing}")
         if self.use_index_dates:
             v0 = self.index.value_date(self.fixing)
             v1 = self.index.maturity_date(v0)
