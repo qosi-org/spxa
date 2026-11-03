@@ -253,5 +253,37 @@ class SVIJumpWings:
         a = self.v_min * t - b * sigma * q
         return SVIRaw(a, b, rho, m, sigma)
 
+    def butterfly_free_projection(self) -> "SVIJumpWings":
+        r"""Gatheral & Jacquier (2014, §5.1): keep :math:`(v, \psi, p)` and set
+
+        .. math:: c' = p + 2\psi, \qquad \tilde v' = v\,\frac{4pc'}{(p + c')^2}.
+
+        The result is an SSVI slice with :math:`\theta = vt`,
+        :math:`\rho = 2\psi/(p + c')` and :math:`\varphi = (p + c')/\sqrt{\theta}`,
+        free of butterfly arbitrage when :meth:`satisfies_ssvi_bounds` holds.
+        """
+        c2 = self.p + 2.0 * self.psi
+        if c2 <= 0.0 or self.p <= 0.0:
+            raise ValueError("projection needs p > 0 and p + 2 psi > 0")
+        vmin = self.v * 4.0 * self.p * c2 / (self.p + c2) ** 2
+        return SVIJumpWings(self.v, self.psi, self.p, c2, vmin, self.t)
+
+    def satisfies_ssvi_bounds(self) -> bool:
+        r"""Remark 4.2: :math:`\sqrt{vt}\max(p, c) \le 4` and :math:`(p + c)\max(p, c) \le 8`.
+
+        For an SSVI-shaped slice (:math:`c - p = 2\psi`) these are the
+        sufficient butterfly conditions of Theorem 4.2.
+        """
+        mx = max(self.p, self.c)
+        return math.sqrt(self.v * self.t) * mx <= 4.0 and (self.p + self.c) * mx <= 8.0
+
+    def to_ssvi_natural(self) -> "SVINatural":
+        """The SSVI slice of an SSVI-shaped parameter set (``c - p = 2 psi``)."""
+        if abs(self.c - self.p - 2.0 * self.psi) > 1e-12 * max(1.0, self.c + self.p):
+            raise ValueError("not an SSVI slice: c - p must equal 2 psi")
+        theta = self.v * self.t
+        rho = 2.0 * self.psi / (self.p + self.c)
+        return SVINatural(0.0, 0.0, rho, theta, (self.p + self.c) / math.sqrt(theta))
+
     def total_variance(self, k: Any) -> Any:
         return self.to_raw().total_variance(k)
