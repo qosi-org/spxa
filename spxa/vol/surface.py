@@ -1,0 +1,194 @@
+r"""Implied-volatility surfaces in strike and expiry.
+
+A :class:`VolSurface` combines a total-variance model :math:`w(k, T)` in
+log-forward moneyness :math:`k = \log(K/F_T)` with a forward curve that
+supplies :math:`F_T` and the discount factor :math:`P(0, T)`. From these it
+gives implied volatilities and Black prices in strike space:
+
+.. math::
+    \sigma(K, T) = \sqrt{w(\log(K/F_T), T)/T}, \qquad
+    V(K, T) = P(0, T)\,\mathrm{Black}(F_T, K, T, \sigma(K, T)).
+
+The model is anything with a method ``total_variance(k, T)`` for arrays
+``k`` and scalar ``T``. That covers :class:`~spxa.vol.SSVI`,
+:class:`~spxa.vol.ESSVI` and :class:`~spxa.vol.PriceInterpolatedSurface`.
+The surface does not extrapolate the model in time; it uses whatever the
+model does.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Optional, Protocol, Sequence
+
+import numpy as np
+
+from spxa.market.black import black_price
+from spxa.market.curves import EquityForward
+from spxa.vol.interpolation import PriceInterpolatedSurface
+
+__all__ = ["TotalVarianceModel", "ForwardLike", "VolSurface"]
+
+
+class TotalVarianceModel(Protocol):
+    """Anything that returns total implied variance ``w(k, T)``."""
+
+    def total_variance(self, k: Any, T: float) -> Any: ...
+
+
+class ForwardLike(Protocol):
+    """Anything that returns forwards and discount factors for year fractions."""
+
+    def forward(self, t: Any) -> Any: ...
+
+    def discount(self, t: Any) -> Any: ...
+
+
+class _Flat:
+    def __init__(self, sigma: float) -> None:
+        self.sigma = float(sigma)
+
+    def total_variance(self, k: Any, T: float) -> Any:
+        kk = np.asarray(k, float)
+        out = np.full(kk.shape, self.sigma**2 * T)
+        return float(out) if out.ndim == 0 else out
+
+
+def _out(x: np.ndarray) -> Any:
+    return float(x) if x.ndim == 0 else x
+
+
+class VolSurface:
+    r"""Implied-volatility surface on a forward curve.
+
+    Parameters
+    ----------
+    model
+        Total-variance model with ``total_variance(k, T)``.
+    forward
+        An :class:`~spxa.market.curves.EquityForward` or any object with
+        ``forward(t)`` and ``discount(t)`` in year fractions.
+
+    All strike-space methods broadcast ``K`` against ``T``. At
+    :math:`T = 0` the total variance is zero and prices are intrinsic.
+    """
+
+    def __init__(self, model: TotalVarianceModel, forward: ForwardLike) -> None:
+        if not hasattr(model, "total_variance"):
+            raise TypeError("model needs a total_variance(k, T) method")
+        self.model = model
+        self.forward_curve = forward
+
+    # ------------------------------------------------------------ builders
+    @classmethod
+    def flat(cls, sigma: float, forward: ForwardLike) -> "VolSurface":
+        """Constant volatility ``sigma`` (Black–Scholes)."""
+        if sigma < 0:
+            raise ValueError("sigma must be non-negative")
+        return cls(_Flat(sigma), forward)
+
+    @classmethod
+    def from_slices(
+        cls, expiries: Sequence[float], slices: Sequence[Any], forward: ForwardLike
+    ) -> "VolSurface":
+        """Slices joined by Gatheral–Jacquier price interpolation (no extrapolation)."""
+        return cls(PriceInterpolatedSurface(expiries, slices), forward)
+
+    @classmethod
+    def from_spot(
+        cls,
+        model: TotalVarianceModel,
+        spot: float,
+        rate: Any,
+        dividend_yield: Any = None,
+        **kwargs: Any,
+    ) -> "VolSurface":
+        """Surface on an :class:`EquityForward` built from spot, rate and yield."""
+        return cls(model, EquityForward(spot, rate, dividend_yield, **kwargs))
+
+    # --------------------------------------------------------------- curves
+    def forward(self, T: Any) -> Any:
+        r"""Forward :math:`F_T`."""
+        return self.forward_curve.forward(T)
+
+    def discount(self, T: Any) -> Any:
+        r"""Discount factor :math:`P(0, T)`."""
+        return self.forward_curve.discount(T)
+
+    def log_moneyness(self, K: Any, T: Any) -> Any:
+        r""":math:`k = \log(K/F_T)`."""
+        KK, TT = np.broadcast_arrays(np.asarray(K, float), np.asarray(T, float))
+        return _out(np.log(KK / self._forward_array(TT)))
+
+    def strike(self, k: Any, T: Any) -> Any:
+        r"""Strike :math:`K = F_T e^k`."""
+        kk, TT = np.broadcast_arrays(np.asarray(k, float), np.asarray(T, float))
+        return _out(self._forward_array(TT) * np.exp(kk))
+
+    def _forward_array(self, T: np.ndarray) -> np.ndarray:
+        if np.any(T < 0):
+            raise ValueError("negative expiry")
+        out = np.empty(T.shape)
+        for t in np.unique(T):
+            out[T == t] = float(self.forward_curve.forward(float(t)))
+        return out
+
+    def _discount_array(self, T: np.ndarray) -> np.ndarray:
+        out = np.empty(T.shape)
+        for t in np.unique(T):
+            out[T == t] = float(self.forward_curve.discount(float(t)))
+        return out
+
+    # ------------------------------------------------------- moneyness space
+    def total_variance(self, k: Any, T: Any) -> Any:
+        """Total implied variance at log-moneyness ``k`` and expiry ``T``."""
+        kk, TT = np.broadcast_arrays(np.asarray(k, float), np.asarray(T, float))
+        if np.any(TT < 0):
+            raise ValueError("negative expiry")
+        out = np.zeros(kk.shape)
+        for t in np.unique(TT):
+            if t == 0:
+                continue
+            m = TT == t
+            out[m] = np.asarray(self.model.total_variance(kk[m], float(t)), float)
+        return _out(out)
+
+    def implied_vol_k(self, k: Any, T: Any) -> Any:
+        r"""Implied volatility at log-moneyness ``k`` (``T > 0``)."""
+        TT = np.asarray(T, float)
+        if np.any(TT <= 0):
+            raise ValueError("implied volatility needs T > 0")
+        return _out(np.sqrt(np.asarray(self.total_variance(k, T), float) / TT))
+
+    # ---------------------------------------------------------- strike space
+    def implied_vol(self, K: Any, T: Any) -> Any:
+        r"""Black implied volatility :math:`\sigma(K, T)` (``T > 0``)."""
+        return self.implied_vol_k(self.log_moneyness(K, T), T)
+
+    def price(self, K: Any, T: Any, option: Any = "call") -> Any:
+        """Discounted Black price of a European option."""
+        KK, TT = np.broadcast_arrays(np.asarray(K, float), np.asarray(T, float))
+        F = self._forward_array(TT)
+        w = np.asarray(self.total_variance(np.log(KK / F), TT), float)
+        safe = np.where(TT > 0, TT, 1.0)
+        sigma = np.where(TT > 0, np.sqrt(w / safe), 0.0)
+        return black_price(F, KK, TT, sigma, self._discount_array(TT), option)
+
+    def smile(self, T: float, strikes: Any) -> Any:
+        """Implied volatilities across ``strikes`` at one expiry."""
+        return self.implied_vol(np.asarray(strikes, float), float(T))
+
+    # ------------------------------------------------------------------ ATM
+    def atm_vol(self, T: Any) -> Any:
+        r"""At-the-money-forward volatility :math:`\sigma(F_T, T)`."""
+        return self.implied_vol_k(np.zeros(np.shape(T)), T)
+
+    def atm_skew(self, T: float, h: Optional[float] = None) -> float:
+        r"""ATM skew :math:`\partial_k \sigma(k, T)|_{k=0}` (central difference)."""
+        if T <= 0:
+            raise ValueError("T must be positive")
+        h = 1e-4 * max(float(np.sqrt(self.total_variance(0.0, T))), 1e-3) if h is None else h
+        up, dn = self.implied_vol_k(np.array([h, -h]), T)
+        return float((up - dn) / (2 * h))
+
+    def __repr__(self) -> str:
+        return f"VolSurface(model={type(self.model).__name__})"

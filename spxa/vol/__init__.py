@@ -30,6 +30,9 @@ Wings
     :func:`rogers_tehranchi_slope`.
 Interpolation in time
     :class:`PriceInterpolatedSurface` (Gatheral–Jacquier price interpolation).
+Surfaces
+    :class:`VolSurface`: implied volatilities and Black prices in strike
+    space from a total-variance model and a forward curve.
 Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
@@ -67,6 +70,7 @@ from spxa.vol.interpolation import PriceInterpolatedSurface
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
+from spxa.vol.surface import ForwardLike, TotalVarianceModel, VolSurface
 from spxa.vol.wings import (
     WingAsymptotics,
     lee_moment_from_slope,
@@ -125,4 +129,8 @@ __all__ = [
     "lee_slope_from_moment",
     "rogers_tehranchi_slope",
     "wing_asymptotics",
+    # surfaces
+    "VolSurface",
+    "TotalVarianceModel",
+    "ForwardLike",
 ]
