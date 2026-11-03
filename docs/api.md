@@ -180,6 +180,11 @@ the running library. All signatures are exact.
    - [Cashflows, Legs & Pricing](#cashflows-legs-pricing)
    - [Money Market & Futures](#money-market-futures)
    - [Swaps & Bonds](#swaps-bonds)
+22. [Implied Volatility Surfaces (`spxa.vol`)](#implied-volatility-surfaces-spxavol)
+   - [Coordinates & SVI Slices](#coordinates-svi-slices)
+   - [SSVI & eSSVI](#ssvi-essvi)
+   - [Calibration](#calibration)
+   - [Diagnostics, Interpolation & Distributions](#diagnostics-interpolation-distributions)
 
 ---
 
@@ -5134,3 +5139,29 @@ Interest-rate instruments on real calendar dates, priced on separate discount an
 - `ois_swap(trade_date, tenor, fixed_rate, index=SOFR, notional=1.0, payer=True, frequency="1Y", payment_lag=2, spot_lag=2, fixed_day_count=None, forward_start=None, spread=0.0)` and `vanilla_swap(trade_date, tenor, fixed_rate, index=EURIBOR6M, notional=1.0, payer=True, fixed_tenor="1Y", fixed_day_count="30/360", float_tenor=None, spot_lag=None, forward_start=None, spread=0.0, use_index_dates=True)`. `notional` may be a number, one value per period, or a function of the accrual start such as `step_notional(dates, values)` or `linear_notional(start, end, initial, final=0.0)`.
 - `BasisSwap(first, second)` with `leg_pvs`, `pv` and `par_spread`; `basis_swap(trade_date, tenor, first, second, spread=0.0, notional=1.0, first_tenor=None, second_tenor=None, spot_lag=2, payment_lag=0, forward_start=None, use_index_dates=True)` (spread on the first leg).
 - `FixedRateBond(effective, maturity, coupon, frequency="6M", day_count="ACT/ACT ICMA", calendar="US-SIFMA", settlement_days=1, face=100.0, first_coupon=None)`: `cashflows()` (`BondCashflow` rows), `settlement_date(trade_date)`, `accrued_interest(settle)`, `dirty_price(y, settle)`, `clean_price(y, settle)`, `yield_from_clean(clean, settle)`, `macaulay_duration`, `modified_duration`, `convexity`, `dirty_price_from_curve(curve, settle, z_spread=0.0)` and `z_spread(clean, curve, settle)`.
+
+## Implied Volatility Surfaces (`spxa.vol`)
+
+Arbitrage-free implied-volatility slices and surfaces in log-forward moneyness $k = \log(K/F)$ and total variance $w = \sigma^2 T$. The theory is in [Implied volatility surfaces](theory/vol.md).
+
+### Coordinates & SVI Slices
+- `log_moneyness(K, F)`, `strike_from_log_moneyness(k, F)`, `total_variance(sigma, T)`, `implied_vol_from_total_variance(w, T)`, `normalised_call_from_total_variance(k, w)` and `total_variance_from_price(price, F, K, T, df=1.0, option="call")`.
+- `SVIRaw(a, b, rho, m, sigma)`: callable as `w(k)`, with `total_variance`, `dw`, `d2w`, `implied_vol(k, T)`, `min_variance`, `argmin`, `left_slope`, `right_slope`, `satisfies_lee_bound()`, `to_natural()`, `to_jump_wings(t)`, `to_array()`/`from_array(p)`.
+- `SVINatural(delta, mu, rho, omega, zeta)` with `to_raw()`; `SVIJumpWings(v, psi, p, c, v_min, t)` with `to_raw()`, `butterfly_free_projection()`, `satisfies_ssvi_bounds()` and `to_ssvi_natural()`.
+
+### SSVI & eSSVI
+- `SSVI(rho, phi, theta)` with `total_variance(k, T)`, `total_variance_theta(k, theta)`, `implied_vol`, `slice(T)` (raw SVI), `butterfly_conditions(thetas)`, `calendar_conditions(thetas)` and `is_arbitrage_free(thetas)`. Curvatures `HestonLikePhi(lam)` and `PowerLawPhi(eta, gamma)`; `ATMVarianceCurve(times, thetas)`.
+- `ESSVISlice(theta, psi, rho)` with `phi`, `total_variance`, `to_raw()` and `butterfly_free()`; `essvi_calendar_free(first, second, tol=0.0)`; `ESSVI(times, slices, long_theta_slope=None)` with `params(T)`, `slice(T)`, `total_variance(k, T)`, `implied_vol`, `violations()` and `is_arbitrage_free()`; `anchored_theta(rho, psi, k_star, theta_star)`.
+
+### Calibration
+- `calibrate_svi(k, w, weights=None, max_slope=2.0, sigma_bounds=(1e-4, 5.0), m_bounds=None, n_starts=4)` (quasi-explicit) and `svi_inner_fit(k, w, m, sigma, weights=None, max_slope=2.0)` return an `SVIFit(params, rmse, sse, nfev, success)` or a `(slice, sse)` pair.
+- `calibrate_svi_butterfly_free(k, w, weights=None, max_slope=2.0, grid=None, initial=None, min_g=1e-8, lower=None, min_gap=0.0)`: Durrleman's condition (and, with `lower`, no calendar arbitrage against the previous slice) imposed with cutting planes.
+- `calibrate_svi_surface(expiries, ks, ws, weights=None, max_slope=2.0, min_g=1e-8, min_gap=0.0, grid=None)` returns an `SVISurfaceFit(expiries, slices, fits)` with `rmse` and `success`.
+- `calibrate_ssvi(expiries, ks, ws, phi="power_law"|"heston", no_arbitrage=True)` returns an `SSVIFit(surface, thetas, rmse, success)`; `isotonic_increasing(y, weights=None)` is the pool-adjacent-violators fit used for $\theta_t$.
+- `calibrate_essvi(expiries, ks, ws, n_rho=41, margin=1e-9)` returns an `ESSVI`.
+
+### Diagnostics, Interpolation & Distributions
+- `durrleman_g(k, w, dw, d2w)`, `risk_neutral_density(slice, k)`, `check_butterfly(slice, k=None, tol=0.0)` (a `ButterflyCheck` with `min_g`, `argmin` and `negative_intervals`) and `check_calendar(slices, k=None, tol=0.0)` (a `CalendarCheck` with `worst`, `at_k` and `between`). Both checks are truthy when arbitrage-free.
+- `wing_asymptotics(slice, k_far=1e4)` returns `WingAsymptotics(left_slope, right_slope)` with `left_moment`, `right_moment`, `left_decay`, `right_decay` and `satisfies_lee_bound`. Also `lee_moment_from_slope(beta)`, `lee_slope_from_moment(x)` and `rogers_tehranchi_slope(slice, k=None)`.
+- `PriceInterpolatedSurface(expiries, slices)` with `theta(t)`, `bucket(t)`, `otm_price(k, t)`, `call_price(k, t)`, `total_variance(k, t)`, `implied_vol(k, t)` and `density(k, t)`.
+- `ImpliedDistribution(slice, k_min=None, k_max=None)` with `pdf`, `cdf`, `survival`, `digital_call`, `digital_put`, `expectation(f, points=None)`, `total_mass`, `forward_ratio`, `moment(n)`, `call(k)`, `quantile(u)` and `sample(n, rng=None, grid=4001)`.
