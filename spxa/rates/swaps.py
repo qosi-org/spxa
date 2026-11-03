@@ -22,7 +22,7 @@ spread against EURIBOR 6M, or €STR against EURIBOR 3M (:func:`basis_swap`).
 from __future__ import annotations
 
 import datetime as _dt
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Sequence
 
 from spxa.market.calendars import get_calendar
@@ -129,6 +129,36 @@ class Swap:
         return self.floating_leg_pv(discount, projection, fixings, valuation_date) / self.annuity(
             discount, valuation_date
         )
+
+    def with_fixed_rate(self, rate: float) -> "Swap":
+        """Copy of the swap with every fixed coupon at ``rate``."""
+        fixed = [replace(c, rate=rate) for c in self.fixed if isinstance(c, FixedCoupon)]
+        return Swap(fixed, self.floating, self.payer, dict(self._meta))
+
+    def pv01(self, discount: YieldCurve, valuation_date: Optional[DateLike] = None) -> float:
+        """Value of one basis point on the fixed rate, :math:`10^{-4}A` (positive)."""
+        return 1e-4 * self.annuity(discount, valuation_date)
+
+    def dv01(
+        self,
+        discount: YieldCurve,
+        projection: Optional[YieldCurve] = None,
+        fixings: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+        bump: float = 1e-4,
+    ) -> float:
+        """Change in PV for a one-basis-point parallel rise of all curves.
+
+        Zero rates (continuously compounded) of the discount and projection
+        curves are shifted together by ``bump`` up and down; the central
+        difference is scaled to one basis point.
+        """
+        proj = projection if projection is not None else discount
+
+        def pv_at(h: float) -> float:
+            return self.pv(discount.shifted(h), proj.shifted(h), fixings, valuation_date)
+
+        return (pv_at(bump) - pv_at(-bump)) / (2.0 * bump) * 1e-4
 
     def par_spread(
         self,
