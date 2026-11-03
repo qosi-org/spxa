@@ -42,10 +42,18 @@ Bootstrapping
     :func:`bootstrap_curve` (:class:`BootstrapResult`): pillar-by-pillar
     Brent solves, exact in one pass for local schemes and iterated for
     non-local ones; other curves are passed as ``known``.
+    :func:`fit_curves` (:class:`CurveSpec`, :class:`GlobalFitResult`)
+    solves several curves at once by Newton's method.
 """
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
-from spxa.rates.bootstrap import BootstrapResult, bootstrap_curve
+from spxa.rates.bootstrap import (
+    BootstrapResult,
+    CurveSpec,
+    GlobalFitResult,
+    bootstrap_curve,
+    fit_curves,
+)
 from spxa.rates.cashflows import (
     Cashflow,
     FixedCoupon,
@@ -215,4 +223,7 @@ __all__ = [
     # bootstrapping
     "bootstrap_curve",
     "BootstrapResult",
+    "fit_curves",
+    "CurveSpec",
+    "GlobalFitResult",
 ]

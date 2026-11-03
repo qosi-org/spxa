@@ -31,7 +31,7 @@ from spxa.market.daycount import DayCount
 from spxa.rates.helpers import CurveHelper
 from spxa.rates.interpolation import InterpolationScheme, LogLinearDiscount, PiecewiseCurve
 
-__all__ = ["BootstrapResult", "bootstrap_curve"]
+__all__ = ["BootstrapResult", "bootstrap_curve", "CurveSpec", "GlobalFitResult", "fit_curves"]
 
 
 @dataclass
@@ -107,6 +107,12 @@ def bootstrap_curve(
     for h in hs:
         if name not in h.curves:
             raise ValueError(f"{type(h).__name__} does not read curve {name!r}")
+        missing = set(h.curves) - set(known) - {name}
+        if missing:
+            raise ValueError(
+                f"{type(h).__name__} also reads {sorted(missing)}: pass them as known "
+                "or fit the curves together with fit_curves"
+            )
     pillars = [h.pillar for h in hs]
     if len(set(pillars)) != len(pillars):
         raise ValueError("two helpers share a pillar; drop one or move a pillar")
@@ -169,3 +175,130 @@ def _solve(f: Callable[[float], float], guess: float, t: float) -> float:
     if fhi == 0.0:
         return hi
     return float(brentq(f, lo, hi, xtol=1e-16, rtol=8.9e-16, maxiter=200))
+
+
+# ----------------------------------------------------------------------------
+# simultaneous (global) calibration
+# ----------------------------------------------------------------------------
+@dataclass
+class CurveSpec:
+    """One curve of a simultaneous fit: its helpers set its nodes (one per pillar)."""
+
+    name: str
+    helpers: Sequence[CurveHelper]
+    scheme: InterpolationScheme = field(default_factory=LogLinearDiscount)
+
+
+@dataclass
+class GlobalFitResult:
+    """Output of :func:`fit_curves`."""
+
+    curves: dict[str, YieldCurve]
+    helpers: list[CurveHelper]
+    residuals: np.ndarray
+    iterations: int
+    #: d(residual_i)/d(x_j) at the solution, x = -log P at the stacked nodes
+    jacobian: np.ndarray
+    #: (curve name, pillar) of each column of the Jacobian
+    nodes: list[tuple[str, _dt.date]]
+
+    @property
+    def max_residual(self) -> float:
+        return float(np.max(np.abs(self.residuals)))
+
+
+def fit_curves(
+    specs: Sequence[CurveSpec],
+    reference_date: DateLike,
+    known: Optional[Mapping[str, YieldCurve]] = None,
+    day_count: str = "ACT/365F",
+    tol: float = 1e-14,
+    max_iter: int = 30,
+    bump: float = 1e-7,
+) -> GlobalFitResult:
+    r"""Fit several curves at once by Newton's method on all helper residuals.
+
+    Every helper of ``specs[c]`` puts a node at its pillar on curve ``c``,
+    so the system is square. The unknowns :math:`x = -\log P` at all
+    nodes are solved jointly. That handles instruments reading several
+    curves being built (for example, swaps discounted on an OIS curve
+    fitted in the same pass, or basis swaps) and non-local interpolation
+    without Gauss–Seidel passes.
+
+    The Jacobian uses forward differences of size ``bump``; a column is
+    computed only for helpers that read the bumped curve. Steps are
+    halved until the residual norm decreases. The iteration stops when
+    :math:`\max|r| <` ``tol`` or the step is below ``tol``.
+    """
+    known = dict(known or {})
+    ref = to_date(reference_date)
+    dc = DayCount(day_count)
+    names = [s.name for s in specs]
+    if len(set(names)) != len(names):
+        raise ValueError("curve names must be distinct")
+    if set(names) & set(known):
+        raise ValueError("a curve is both known and fitted")
+    helpers: list[CurveHelper] = []
+    layout: list[tuple[str, np.ndarray, InterpolationScheme, list[_dt.date]]] = []
+    nodes: list[tuple[str, _dt.date]] = []
+    for s in specs:
+        hs = sorted(s.helpers, key=lambda h: h.pillar)
+        if not hs:
+            raise ValueError(f"curve {s.name!r} has no helpers")
+        pil = [h.pillar for h in hs]
+        if len(set(pil)) != len(pil):
+            raise ValueError(f"two helpers of {s.name!r} share a pillar")
+        if pil[0] <= ref:
+            raise ValueError("pillars must be after the reference date")
+        layout.append((s.name, np.array([dc.year_fraction(ref, d) for d in pil]), s.scheme, pil))
+        helpers.extend(hs)
+        nodes.extend((s.name, d) for d in pil)
+    available = set(names) | set(known)
+    for h in helpers:
+        missing = set(h.curves) - available
+        if missing:
+            raise ValueError(f"{type(h).__name__} reads unknown curves {sorted(missing)}")
+    sizes = [t.size for _, t, _, _ in layout]
+    offs = np.cumsum([0] + sizes)
+    n = int(offs[-1])
+    reads = np.array([[name in h.curves for name in names] for h in helpers])
+
+    def build(x: np.ndarray) -> dict[str, YieldCurve]:
+        out: dict[str, YieldCurve] = dict(known)
+        for c, (name, t, scheme, _) in enumerate(layout):
+            out[name] = _curve(t, x[offs[c] : offs[c + 1]], scheme, ref, dc)
+        return out
+
+    def residuals(x: np.ndarray, rows: Optional[np.ndarray] = None) -> np.ndarray:
+        curves = build(x)
+        idx = range(n) if rows is None else np.flatnonzero(rows)
+        r = np.zeros(n)
+        for i in idx:
+            r[i] = helpers[i].residual(curves)
+        return r
+
+    x = np.concatenate([0.03 * t for _, t, _, _ in layout])
+    r = residuals(x)
+    J = np.zeros((n, n))
+    it = 0
+    for it in range(1, max_iter + 1):
+        J = np.zeros((n, n))
+        for c in range(len(layout)):
+            rows = reads[:, c]
+            for j in range(int(offs[c]), int(offs[c + 1])):
+                xb = x.copy()
+                xb[j] += bump
+                J[:, j] = (residuals(xb, rows) - r * rows) / bump
+        step = np.linalg.solve(J, -r)
+        lam, norm0 = 1.0, float(np.linalg.norm(r))
+        while True:
+            xn = x + lam * step
+            rn = residuals(xn)
+            if float(np.linalg.norm(rn)) < norm0 or lam < 1e-6:
+                break
+            lam *= 0.5
+        x, r = xn, rn
+        if np.max(np.abs(r)) < tol or np.max(np.abs(lam * step)) < tol:
+            break
+    curves = build(x)
+    return GlobalFitResult(curves, helpers, r, it, J, nodes)
