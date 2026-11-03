@@ -8,7 +8,7 @@ Coordinates
     :func:`normalised_call_from_total_variance`,
     :func:`total_variance_from_price`.
 SVI
-    :class:`SVIRaw`.
+    :class:`SVIRaw`, :class:`SVINatural`, :class:`SVIJumpWings`.
 """
 
 from spxa.vol.conventions import (
@@ -19,7 +19,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
-from spxa.vol.svi import SVIRaw
+from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
 
 __all__ = [
     # coordinates
@@ -30,5 +30,7 @@ __all__ = [
     "total_variance",
     "total_variance_from_price",
     # SVI
+    "SVIJumpWings",
+    "SVINatural",
     "SVIRaw",
 ]
