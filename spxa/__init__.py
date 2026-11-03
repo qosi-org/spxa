@@ -856,6 +856,7 @@ __all__ = [
     "rough",
     "pde",
     "market",
+    "rates",
 ]
 
 
@@ -872,6 +873,7 @@ def __getattr__(name: str):
         "morph",
         "pde",
         "market",
+        "rates",
     ):
         import importlib
 
