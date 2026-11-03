@@ -7,6 +7,8 @@ Coordinates
     :func:`implied_vol_from_total_variance`,
     :func:`normalised_call_from_total_variance`,
     :func:`total_variance_from_price`.
+SVI
+    :class:`SVIRaw`.
 """
 
 from spxa.vol.conventions import (
@@ -17,6 +19,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
+from spxa.vol.svi import SVIRaw
 
 __all__ = [
     # coordinates
@@ -26,4 +29,6 @@ __all__ = [
     "strike_from_log_moneyness",
     "total_variance",
     "total_variance_from_price",
+    # SVI
+    "SVIRaw",
 ]
