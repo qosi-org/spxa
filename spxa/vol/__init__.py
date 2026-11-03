@@ -33,6 +33,10 @@ Interpolation in time
 Surfaces
     :class:`VolSurface`: implied volatilities and Black prices in strike
     space from a total-variance model and a forward curve.
+    :func:`build_vol_surface` runs quotes -> parity forwards -> OTM
+    total variances -> SVI/eSSVI/SSVI fit -> surface
+    (:class:`SurfaceBuild`, :class:`ForwardTermStructure`,
+    :func:`chain_total_variance`).
 Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
@@ -70,6 +74,12 @@ from spxa.vol.interpolation import PriceInterpolatedSurface
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
+from spxa.vol.build import (
+    ForwardTermStructure,
+    SurfaceBuild,
+    build_vol_surface,
+    chain_total_variance,
+)
 from spxa.vol.surface import ForwardLike, TotalVarianceModel, VolSurface
 from spxa.vol.wings import (
     WingAsymptotics,
@@ -133,4 +143,8 @@ __all__ = [
     "VolSurface",
     "TotalVarianceModel",
     "ForwardLike",
+    "build_vol_surface",
+    "SurfaceBuild",
+    "ForwardTermStructure",
+    "chain_total_variance",
 ]
