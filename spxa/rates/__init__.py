@@ -32,7 +32,8 @@ Curve construction
     :class:`PiecewiseCurve` on discount-factor nodes with the
     interpolation schemes :class:`LogLinearDiscount`, :class:`LinearZero`,
     :class:`CubicSplineRT`, :class:`CubicZero` and
-    :class:`MonotoneCubicRT` (Hyman-filtered, :func:`hyman_slopes`).
+    :class:`MonotoneCubicRT` (Hyman-filtered, :func:`hyman_slopes`) and
+    Hagan–West :class:`MonotoneConvex`.
 """
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
@@ -82,6 +83,7 @@ from spxa.rates.interpolation import (
     InterpolationScheme,
     LinearZero,
     LogLinearDiscount,
+    MonotoneConvex,
     MonotoneCubicRT,
     PiecewiseCurve,
     discrete_forwards,
@@ -181,6 +183,7 @@ __all__ = [
     "CubicSplineRT",
     "CubicZero",
     "MonotoneCubicRT",
+    "MonotoneConvex",
     "hyman_slopes",
     "discrete_forwards",
 ]

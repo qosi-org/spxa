@@ -25,6 +25,10 @@ interpolated, and hence in the shape of the forward curve (Hagan & West,
 :class:`MonotoneCubicRT`
     Hermite cubic on :math:`r t` with Hyman-filtered slopes: continuous
     forwards that stay non-negative when the discrete forwards are.
+:class:`MonotoneConvex`
+    Hagan–West monotone convex on the forwards themselves: continuous
+    forwards, reproduces the discrete forwards' averages, optional
+    positivity collar.
 
 Beyond the last node every scheme extrapolates with the forward it has
 at :math:`t_n` held flat. Negative times are rejected.
@@ -49,6 +53,7 @@ __all__ = [
     "CubicSplineRT",
     "CubicZero",
     "MonotoneCubicRT",
+    "MonotoneConvex",
     "hyman_slopes",
     "PiecewiseCurve",
     "discrete_forwards",
@@ -288,6 +293,127 @@ class MonotoneCubicRT(InterpolationScheme):
 
     def fit(self, times: np.ndarray, logp: np.ndarray) -> FittedInterpolation:
         return _Hermite(times, logp)
+
+
+def _monotone_convex_g(
+    x: np.ndarray, g0: np.ndarray, g1: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Hagan–West :math:`g(x)` and :math:`G(x) = \int_0^x g`, elementwise.
+
+    :math:`g` is the forward minus the discrete forward of the interval, with
+    :math:`g(0) = g_0`, :math:`g(1) = g_1` and :math:`G(1) = 0`.
+    """
+    g = np.zeros_like(x)
+    G = np.zeros_like(x)
+    zero = (g0 == 0) & (g1 == 0)
+    c1 = ~zero & (
+        ((g0 < 0) & (-g0 / 2 <= g1) & (g1 <= -2 * g0))
+        | ((g0 > 0) & (-g0 / 2 >= g1) & (g1 >= -2 * g0))
+    )
+    c2 = ~zero & ~c1 & (((g0 < 0) & (g1 > -2 * g0)) | ((g0 > 0) & (g1 < -2 * g0)))
+    c3 = (
+        ~zero
+        & ~c1
+        & ~c2
+        & (((g0 > 0) & (g1 < 0) & (g1 > -g0 / 2)) | ((g0 < 0) & (g1 > 0) & (g1 < -g0 / 2)))
+    )
+    c4 = ~zero & ~c1 & ~c2 & ~c3
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # (i) quadratic
+        q0, q1 = (
+            g0 * (1 - 4 * x + 3 * x * x) + g1 * (-2 * x + 3 * x * x),
+            g0 * (x - 2 * x * x + x**3) + g1 * (x**3 - x * x),
+        )
+        g, G = np.where(c1, q0, g), np.where(c1, q1, G)
+        # (ii) flat at g0, then quadratic to g1
+        eta = (g1 + 2 * g0) / (g1 - g0)
+        u = np.maximum(x - eta, 0.0)
+        d = (1 - eta) ** 2
+        g = np.where(c2, g0 + (g1 - g0) * u * u / d, g)
+        G = np.where(c2, g0 * x + (g1 - g0) * u**3 / (3 * d), G)
+        # (iii) quadratic from g0, then flat at g1
+        eta = 3 * g1 / (g1 - g0)
+        u = np.maximum(eta - x, 0.0)
+        e2 = eta * eta
+        g = np.where(c3, g1 + (g0 - g1) * u * u / e2, g)
+        G = np.where(c3, g1 * x + (g0 - g1) * (eta**3 - u**3) / (3 * e2), G)
+        # (iv) two quadratics meeting at the minimum (or maximum) A
+        eta = g1 / (g0 + g1)
+        A = -g0 * g1 / (g0 + g1)
+        lft, rgt = np.maximum(eta - x, 0.0), np.maximum(x - eta, 0.0)
+        e2, d = eta * eta, (1 - eta) ** 2
+        # eta = 0 or 1 (one of g0, g1 is zero): a boundary layer of zero width
+        left = (g0 - A) * np.where(e2 > 0, lft * lft / e2, x <= 0)
+        right = (g1 - A) * np.where(d > 0, rgt * rgt / d, x >= 1)
+        Gl = (g0 - A) * np.where(e2 > 0, (eta**3 - lft**3) / (3 * e2), 0.0)
+        Gr = (g1 - A) * np.where(d > 0, rgt**3 / (3 * d), 0.0)
+        g = np.where(c4, A + left + right, g)
+        G = np.where(c4, A * x + Gl + Gr, G)
+    return g, G
+
+
+class _MonotoneConvex(FittedInterpolation):
+    def __init__(self, times: np.ndarray, logp: np.ndarray, positivity: bool) -> None:
+        super().__init__(times, logp)
+        fd = discrete_forwards(times, logp)
+        self.fd = fd
+        n = fd.size
+        f = np.empty(n + 1)
+        if n == 1:
+            f[:] = fd[0]
+        else:
+            h = np.diff(times)
+            f[1:-1] = (h[:-1] * fd[1:] + h[1:] * fd[:-1]) / (h[:-1] + h[1:])
+            f[0] = fd[0] - 0.5 * (f[1] - fd[0])
+            f[-1] = fd[-1] - 0.5 * (f[-2] - fd[-1])
+            if positivity:
+                f[0] = np.clip(f[0], 0.0, 2 * fd[0])
+                f[1:-1] = np.clip(f[1:-1], 0.0, 2 * np.minimum(fd[:-1], fd[1:]))
+                f[-1] = np.clip(f[-1], 0.0, 2 * fd[-1])
+        self.f = f
+
+    def _inside(self, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        i = self._locate(t)
+        a, h = self.times[i - 1], np.diff(self.times)[i - 1]
+        x = (t - a) / h
+        fd = self.fd[i - 1]
+        g, G = _monotone_convex_g(x, self.f[i - 1] - fd, self.f[i] - fd)
+        return self.logp[i - 1] - h * (fd * x + G), fd + g
+
+
+class MonotoneConvex(InterpolationScheme):
+    r"""Hagan–West monotone convex interpolation of forwards.
+
+    The discrete forwards :math:`f^d_i` are the inputs. Node forwards are
+    width-weighted averages of neighbouring :math:`f^d_i`, with
+    :math:`f_0 = f^d_1 - (f_1 - f^d_1)/2` and similarly at :math:`t_n`. On
+    each interval :math:`f = f^d_i + g(x)`, where :math:`g` is one of four
+    piecewise-quadratic shapes, chosen so that :math:`g(0)`, :math:`g(1)`
+    hit the node forwards, :math:`\int_0^1 g = 0` (the nodes are
+    reproduced) and the forward stays between the extremes of the data
+    where it can.
+
+    With ``positivity=True`` the node forwards are collared to
+    :math:`[0, 2\min(f^d_i, f^d_{i+1})]`, which makes every forward
+    non-negative when the discrete forwards are. This is the positivity
+    collar only; the "amelioration" of the 2008 paper is not applied.
+    Moving one node changes the curve on at most four intervals.
+
+    The forward is continuous except in a degenerate case. When exactly one
+    of :math:`g_0, g_1` is zero and the other is not, shape (iv) collapses
+    to a boundary layer of zero width and the forward jumps at that node.
+    """
+
+    local = False
+
+    def __init__(self, positivity: bool = False) -> None:
+        self.positivity = bool(positivity)
+
+    def fit(self, times: np.ndarray, logp: np.ndarray) -> FittedInterpolation:
+        return _MonotoneConvex(times, logp, self.positivity)
+
+    def __repr__(self) -> str:
+        return f"MonotoneConvex(positivity={self.positivity})"
 
 
 class PiecewiseCurve(YieldCurve):

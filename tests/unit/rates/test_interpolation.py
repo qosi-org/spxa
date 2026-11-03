@@ -198,3 +198,87 @@ def test_scheme_flags_and_bc() -> None:
     with pytest.raises(ValueError):
         CubicSplineRT("clamped")
     assert repr(CubicZero()) == "CubicZero('natural')"
+
+
+# -- Hagan-West monotone convex -----------------------------------------------
+from spxa.rates.interpolation import MonotoneConvex, _monotone_convex_g  # noqa: E402
+
+
+def test_monotone_convex_reference_values() -> None:
+    # tf-quant-finance's documented example of rates.hagan_west.monotone_convex
+    t = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    y = np.array([2.75, 4.0, 4.75, 5.0, 4.75]) / 100
+    c = PiecewiseCurve.from_zero_rates(t, y, MonotoneConvex())
+    got = c.instantaneous_forward(np.array([0.3, 1.3, 2.1, 4.5]))
+    assert got == pytest.approx([0.0229375, 0.05010625, 0.0609, 0.03625], abs=1e-15)
+    # node forwards: f_0 = 2.125%, interior averages, f_5 = 3.25%
+    assert c.instantaneous_forward(t) == pytest.approx(
+        [0.04, 0.0575, 0.06, 0.0475, 0.0325], abs=1e-15
+    )
+    assert c.instantaneous_forward(0.0) == pytest.approx(0.02125, abs=1e-15)
+    assert c.discount(t) == pytest.approx(np.exp(-y * t), rel=1e-15)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_monotone_convex_shapes(seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    x = np.linspace(0, 1, 20001)
+    for g0, g1 in rng.normal(size=(200, 2)):
+        g, G = _monotone_convex_g(x, np.full_like(x, g0), np.full_like(x, g1))
+        assert g[0] == pytest.approx(g0, abs=1e-12) and g[-1] == pytest.approx(g1, abs=1e-12)
+        assert abs(G[-1]) < 1e-12  # zero mean: the discrete forward is reproduced
+        # G' = g: the trapezoid error is at most h^2 max|g''| / 12 (g'' piecewise constant)
+        trap = np.concatenate([[0.0], np.cumsum(0.5 * (g[1:] + g[:-1]) * np.diff(x))])
+        tol = np.max(np.abs(np.diff(g, 2))) / 12 + 1e-12
+        assert np.max(np.abs(G - trap)) <= 1.01 * tol
+    for g0, g1 in [(0.0, 0.0), (1.0, -2.0), (-1.0, 2.0), (1.0, -0.5), (0.0, 1.0), (1.0, 0.0)]:
+        g, G = _monotone_convex_g(x, np.full_like(x, g0), np.full_like(x, g1))
+        assert g[0] == pytest.approx(g0, abs=1e-12) and g[-1] == pytest.approx(g1, abs=1e-12)
+        assert abs(G[-1]) < 1e-12 and np.all(np.isfinite(g))
+
+
+def test_monotone_convex_curve_properties() -> None:
+    t = np.array([0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0])
+    fd = np.array([0.031, 0.034, 0.029, 0.036, 0.041, 0.038, 0.033, 0.035])
+    rt = np.cumsum(fd * np.diff(np.concatenate([[0.0], t])))
+    c = PiecewiseCurve(t, np.exp(-rt), MonotoneConvex())
+    assert c.discount(t) == pytest.approx(np.exp(-rt), rel=1e-15)
+    for tn in t[:-1]:  # continuous forwards
+        assert (
+            abs(c.instantaneous_forward(tn + 1e-12) - c.instantaneous_forward(tn - 1e-12)) < 1e-10
+        )
+    # interval averages of the forward are the discrete forwards
+    grid = np.concatenate([[0.0], t])
+    xg, wg = np.polynomial.legendre.leggauss(60)
+    for a, b, f in zip(grid[:-1], grid[1:], fd):
+        s = 0.5 * (b - a) * xg + 0.5 * (a + b)
+        assert 0.5 * np.sum(wg * c.instantaneous_forward(s)) == pytest.approx(f, abs=1e-7)
+    # locality: moving node i changes the curve only on [t_{i-2}, t_{i+2}]
+    i = 4  # node t_4 = 2.0 (1-based)
+    bumped = c.node_discounts.copy()
+    bumped[i - 1] *= 0.999
+    c2 = c.with_discounts(bumped)
+    lo, hi = grid[i - 2], grid[i + 2]
+    s = np.linspace(0, 12, 1201)
+    out = (s < lo - 1e-9) | (s > hi + 1e-9)
+    f1, f2 = c.instantaneous_forward(s), c2.instantaneous_forward(s)
+    assert np.max(np.abs(f1[out & (s < lo)] - f2[out & (s < lo)])) == 0.0
+    assert np.max(np.abs(f1[(s > hi + 1e-9)] - f2[(s > hi + 1e-9)])) == 0.0
+    assert np.max(np.abs(f1 - f2)) > 1e-4
+
+
+def test_monotone_convex_positivity_collar() -> None:
+    t = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    fd = np.array([0.04, 0.001, 0.05, 0.002, 0.03])
+    rt = np.cumsum(fd)
+    s = np.linspace(0, 5, 5001)
+    raw = PiecewiseCurve(t, np.exp(-rt), MonotoneConvex())
+    assert np.min(raw.instantaneous_forward(s)) < 0
+    safe = PiecewiseCurve(t, np.exp(-rt), MonotoneConvex(positivity=True))
+    assert np.min(safe.instantaneous_forward(s)) >= 0.0
+    assert safe.discount(t) == pytest.approx(np.exp(-rt), rel=1e-15)
+    one = PiecewiseCurve([2.0], [0.94], MonotoneConvex())
+    assert one.instantaneous_forward(np.array([0.5, 3.0])) == pytest.approx(
+        [-math.log(0.94) / 2] * 2
+    )
+    assert repr(MonotoneConvex(True)) == "MonotoneConvex(positivity=True)"
