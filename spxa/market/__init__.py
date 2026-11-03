@@ -31,6 +31,9 @@ Static arbitrage
 Put–call parity
     :func:`implied_forward` (weighted, outlier-robust regression of
     :math:`C-P` on strike) and :func:`implied_forwards`.
+Carry
+    :func:`implied_carry`, :func:`implied_dividend_yield`,
+    :func:`implied_repo_rate` and :class:`ImpliedForwardCurve`.
 """
 
 from spxa.market.dates import (
@@ -70,6 +73,12 @@ from spxa.market.calendars import (
     available_calendars,
     easter_sunday,
     get_calendar,
+)
+from spxa.market.carry import (
+    ImpliedForwardCurve,
+    implied_carry,
+    implied_dividend_yield,
+    implied_repo_rate,
 )
 from spxa.market.curves import (
     Compounding,
@@ -162,4 +171,9 @@ __all__ = [
     "ParityFit",
     "implied_forward",
     "implied_forwards",
+    # carry
+    "ImpliedForwardCurve",
+    "implied_carry",
+    "implied_dividend_yield",
+    "implied_repo_rate",
 ]
