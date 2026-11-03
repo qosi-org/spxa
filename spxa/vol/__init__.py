@@ -12,6 +12,9 @@ SVI
 SSVI
     :class:`SSVI` with :class:`HestonLikePhi`, :class:`PowerLawPhi` and
     :class:`ATMVarianceCurve`; Theorems 4.1 and 4.2 of Gatheral–Jacquier.
+eSSVI
+    :class:`ESSVISlice`, :class:`ESSVI` and :func:`essvi_calendar_free`
+    (Hendriks–Martini; arbitrage-free interpolation of Corbetta et al.).
 No-arbitrage diagnostics
     :func:`durrleman_g`, :func:`risk_neutral_density`,
     :func:`check_butterfly`, :func:`check_calendar`.
@@ -33,6 +36,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
+from spxa.vol.essvi import ESSVI, ESSVISlice, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
 
@@ -53,6 +57,10 @@ __all__ = [
     "ATMVarianceCurve",
     "HestonLikePhi",
     "PowerLawPhi",
+    # eSSVI
+    "ESSVI",
+    "ESSVISlice",
+    "essvi_calendar_free",
     # arbitrage
     "ButterflyCheck",
     "CalendarCheck",
