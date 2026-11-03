@@ -190,6 +190,43 @@ class VolSurface:
         up, dn = self.implied_vol_k(np.array([h, -h]), T)
         return float((up - dn) / (2 * h))
 
+    # ------------------------------------------------------ forward variance
+    def forward_variance(self, T1: float, T2: Any, k: Any = 0.0) -> Any:
+        r"""Forward implied variance :math:`(w(k, T_2) - w(k, T_1))/(T_2 - T_1)`.
+
+        This is taken at fixed log-forward moneyness ``k`` (ATM forward by
+        default). By Gatheral's calendar condition it is non-negative for
+        every ``k`` exactly when the surface has no calendar arbitrage.
+        ``T1 = 0`` gives the spot implied variance :math:`\sigma^2(k, T_2)`.
+        """
+        T2a = np.asarray(T2, float)
+        if T1 < 0 or np.any(T2a <= T1):
+            raise ValueError("need 0 <= T1 < T2")
+        ka = np.asarray(k, float)
+        w2 = np.asarray(self.total_variance(ka, T2a), float)
+        w1 = np.asarray(self.total_variance(ka, T1), float) if T1 > 0 else 0.0
+        return _out((w2 - w1) / (T2a - T1))
+
+    def forward_vol(self, T1: float, T2: Any, k: Any = 0.0) -> Any:
+        """Square root of :meth:`forward_variance`; raises on calendar arbitrage."""
+        v = np.asarray(self.forward_variance(T1, T2, k), float)
+        if np.any(v < 0):
+            raise ValueError("negative forward variance: calendar arbitrage")
+        return _out(np.sqrt(v))
+
+    def forward_variance_grid(self, expiries: Any, k: Any) -> np.ndarray:
+        """Forward variances between consecutive ``expiries`` (rows) at each ``k`` (columns).
+
+        A strictly negative entry flags calendar arbitrage between two
+        expiries at that moneyness.
+        """
+        Ts = np.asarray(expiries, float)
+        if Ts.ndim != 1 or Ts.size < 2 or np.any(np.diff(Ts) <= 0) or Ts[0] <= 0:
+            raise ValueError("expiries must be positive and strictly increasing")
+        ka = np.atleast_1d(np.asarray(k, float))
+        w = np.array([np.asarray(self.total_variance(ka, T), float) for T in Ts])
+        return np.diff(w, axis=0) / np.diff(Ts)[:, None]
+
     # ---------------------------------------------------------------- greeks
     def greeks(
         self,
