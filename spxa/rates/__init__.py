@@ -8,8 +8,23 @@ Overnight compounding
     :func:`compounded_overnight_rate` with ISDA 2021 lookback, observation
     shift and lockout; :func:`observation_schedule`; curve projection with
     :func:`forward_overnight_rate` and :func:`projected_overnight_rate`.
+Cashflows and legs
+    :class:`FixedCoupon`, :class:`IborCoupon`, :class:`OvernightCoupon`,
+    :class:`SimpleCashflow`; :func:`fixed_leg`, :func:`ibor_leg`,
+    :func:`overnight_leg`.
 """
 
+from spxa.rates.cashflows import (
+    Cashflow,
+    FixedCoupon,
+    IborCoupon,
+    Leg,
+    OvernightCoupon,
+    SimpleCashflow,
+    fixed_leg,
+    ibor_leg,
+    overnight_leg,
+)
 from spxa.rates.indices import (
     ESTR,
     EURIBOR1M,
@@ -54,4 +69,14 @@ __all__ = [
     "forward_overnight_rate",
     "observation_schedule",
     "projected_overnight_rate",
+    # cashflows
+    "Cashflow",
+    "FixedCoupon",
+    "IborCoupon",
+    "Leg",
+    "OvernightCoupon",
+    "SimpleCashflow",
+    "fixed_leg",
+    "ibor_leg",
+    "overnight_leg",
 ]

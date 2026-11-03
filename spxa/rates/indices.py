@@ -236,7 +236,7 @@ class FixingHistory:
 
     def __contains__(self, d: object) -> bool:
         try:
-            return to_date(d) in self.fixings  # type: ignore[arg-type]
+            return to_date(d) in self.fixings
         except (TypeError, ValueError):
             return False
 
