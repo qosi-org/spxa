@@ -197,6 +197,8 @@ def calibrate_svi_butterfly_free(
     grid: Any = None,
     initial: Optional[SVIRaw] = None,
     min_g: float = 1e-8,
+    lower: Optional[SVIRaw] = None,
+    min_gap: float = 0.0,
 ) -> SVIFit:
     r"""Raw SVI fit with Durrleman's condition imposed on a grid.
 
@@ -213,6 +215,13 @@ def calibrate_svi_butterfly_free(
     bounded scalar search and added as constraints (cutting planes) until
     none remain. Slices that already satisfy the condition are returned
     unchanged up to the solver tolerance.
+
+    With ``lower`` (the previous expiry's slice) the fit is also kept free
+    of calendar arbitrage against it: :math:`w(k_j) - w_{\text{lower}}(k_j)
+    \ge` ``min_gap`` on the same grid with the same cutting-plane
+    refinement, and the wing slopes satisfy :math:`b(1 \pm \rho) \ge
+    b_{\text{lower}}(1 \pm \rho_{\text{lower}})`, which controls the sign
+    of the difference beyond the grid.
     """
     from spxa.vol.arbitrage import durrleman_g
 
@@ -243,7 +252,19 @@ def calibrate_svi_butterfly_free(
         wv, d1, d2 = wfun(x, kv)
         return np.asarray(durrleman_g(kv, np.maximum(wv, 1e-12), d1, d2))
 
+    def gap_on(x: np.ndarray, kv: np.ndarray) -> np.ndarray:
+        assert lower is not None
+        return wfun(x, kv)[0] - np.asarray(lower.total_variance(kv), float)
+
+    cal: list[dict[str, Any]] = []
+    if lower is not None:
+        lr, ll = lower.right_slope, lower.left_slope
+        cal = [
+            {"type": "ineq", "fun": lambda x: x[1] * (1 + x[2]) - lr},
+            {"type": "ineq", "fun": lambda x: x[1] * (1 - x[2]) - ll},
+        ]
     base = [
+        *cal,
         {"type": "ineq", "fun": lambda x: max_slope - x[1] * (1 + x[2])},
         {"type": "ineq", "fun": lambda x: max_slope - x[1] * (1 - x[2])},
         {
@@ -262,11 +283,18 @@ def calibrate_svi_butterfly_free(
     fine = np.linspace(gk.min(), gk.max(), 10 * gk.size)
     x = p0.to_array()
     active = gk
+    active_cal = gk
+    # a touching calendar constraint dips O(h^2) between constraint points; aiming
+    # 2e-12 above min_gap and cutting dips deeper than 1e-12 keeps w - lower >= min_gap
+    floor = min_gap + 2e-12
     ok = False
-    # cutting planes: points where g dips between grid nodes join the constraint set
-    for _ in range(12):
-        pts = active
+    # cutting planes: points where g (or the calendar gap) dips between grid nodes
+    # join the constraint set
+    for _ in range(12 if lower is None else 30):
+        pts, cpts = active, active_cal
         cons = [{"type": "ineq", "fun": lambda x, pts=pts: g_on(x, pts) - min_g}, *base]
+        if lower is not None:
+            cons.append({"type": "ineq", "fun": lambda x, c=cpts: gap_on(x, c) - floor})
         r = minimize(
             obj,
             x,
@@ -277,10 +305,16 @@ def calibrate_svi_butterfly_free(
         )
         x = r.x
         cuts = _negative_minima(lambda kv, x=x: g_on(x, kv), fine)
-        if not cuts:
+        ccuts = (
+            _negative_minima(lambda kv, x=x: gap_on(x, kv) - floor, fine, tol=1e-12)
+            if lower is not None
+            else []
+        )
+        if not cuts and not ccuts:
             ok = bool(r.success)
             break
         active = np.union1d(active, cuts)
+        active_cal = np.union1d(active_cal, ccuts)
     params = SVIRaw(*unpack(x))
     sse = obj(x) * scale
     wsum = float(np.sum(sw * sw))
@@ -413,3 +447,68 @@ def calibrate_ssvi(
     surface = SSVI(float(x[0]), phi_obj, curve)
     rmse = float(np.sqrt(obj(x) * scale / w_all.size))
     return SSVIFit(surface, thetas, rmse, bool(best.success))
+
+
+@dataclass(frozen=True)
+class SVISurfaceFit:
+    """Result of :func:`calibrate_svi_surface`."""
+
+    expiries: np.ndarray
+    slices: list[SVIRaw]
+    fits: list[SVIFit]
+
+    @property
+    def rmse(self) -> np.ndarray:
+        return np.array([f.rmse for f in self.fits])
+
+    @property
+    def success(self) -> bool:
+        return all(f.success for f in self.fits)
+
+    def total_variance(self, k: Any, i: int) -> Any:
+        return self.slices[i].total_variance(k)
+
+
+def calibrate_svi_surface(
+    expiries: Any,
+    ks: Any,
+    ws: Any,
+    weights: Any = None,
+    max_slope: float = 2.0,
+    min_g: float = 1e-8,
+    min_gap: float = 0.0,
+    grid: Any = None,
+) -> SVISurfaceFit:
+    r"""Raw SVI slices free of butterfly and calendar arbitrage (Gatheral & Jacquier 2014, §5).
+
+    Slices are fitted from the shortest expiry up. Each one starts from its
+    unconstrained quasi-explicit fit and is solved by
+    :func:`calibrate_svi_butterfly_free` with Durrleman's condition and,
+    from the second slice on, :math:`w_i \ge w_{i-1} +` ``min_gap`` on a
+    common grid (default 601 points covering all the data and twice its
+    width either side) plus ordered wing slopes. Gatheral and Jacquier
+    penalise crossings instead; constraints with cutting planes give an
+    exactly calendar-free result on the grid.
+    """
+    T = np.asarray(expiries, float)
+    if T.ndim != 1 or T.size == 0 or np.any(np.diff(T) <= 0) or T[0] <= 0:
+        raise ValueError("expiries must be positive and strictly increasing")
+    if len(ks) != T.size or len(ws) != T.size:
+        raise ValueError("need one strike and one variance array per expiry")
+    wts = [None] * T.size if weights is None else list(weights)
+    if grid is None:
+        lo = min(float(np.min(k)) for k in ks)
+        hi = max(float(np.max(k)) for k in ks)
+        span = hi - lo
+        grid = np.linspace(lo - 2 * span, hi + 2 * span, 601)
+    slices: list[SVIRaw] = []
+    fits: list[SVIFit] = []
+    prev: Optional[SVIRaw] = None
+    for k, w, wt in zip(ks, ws, wts):
+        fit = calibrate_svi_butterfly_free(
+            k, w, wt, max_slope, grid=grid, min_g=min_g, lower=prev, min_gap=min_gap
+        )
+        slices.append(fit.params)
+        fits.append(fit)
+        prev = fit.params
+    return SVISurfaceFit(T, slices, fits)
