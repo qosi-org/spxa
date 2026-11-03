@@ -13,6 +13,10 @@ Calendars
 Schedules
     :func:`adjust` (F, MF, P, MP, U), :class:`Schedule` with front/back,
     short/long and explicit stubs, the end-of-month rule and accrual periods.
+Curves and forwards
+    :class:`YieldCurve`, :class:`FlatCurve`, :class:`InterpolatedDiscountCurve`,
+    compounding conversions, :class:`EquityForward` with dividend yields,
+    repo and discrete (cash or proportional) dividends.
 """
 
 from spxa.market.dates import (
@@ -34,6 +38,16 @@ from spxa.market.calendars import (
     available_calendars,
     easter_sunday,
     get_calendar,
+)
+from spxa.market.curves import (
+    Compounding,
+    Dividend,
+    EquityForward,
+    FlatCurve,
+    InterpolatedDiscountCurve,
+    YieldCurve,
+    discount_from_rate,
+    rate_from_discount,
 )
 from spxa.market.daycount import DayCount, available_day_counts, day_count, year_fraction
 from spxa.market.schedule import (
@@ -72,4 +86,13 @@ __all__ = [
     "Schedule",
     "adjust",
     "available_business_day_conventions",
+    # curves
+    "Compounding",
+    "Dividend",
+    "EquityForward",
+    "FlatCurve",
+    "InterpolatedDiscountCurve",
+    "YieldCurve",
+    "discount_from_rate",
+    "rate_from_discount",
 ]
