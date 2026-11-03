@@ -12,6 +12,8 @@ Cashflows and legs
     :class:`FixedCoupon`, :class:`IborCoupon`, :class:`OvernightCoupon`,
     :class:`SimpleCashflow`; :func:`fixed_leg`, :func:`ibor_leg`,
     :func:`overnight_leg`.
+Money-market instruments
+    :class:`Deposit`, :class:`FRA`.
 Pricing
     :func:`leg_pv`, :func:`leg_annuity`, :func:`cashflow_table` on
     separate discount and projection curves.
@@ -43,6 +45,7 @@ from spxa.rates.indices import (
     get_index,
 )
 from spxa.rates.pricing import CashflowRow, cashflow_table, leg_annuity, leg_pv
+from spxa.rates.instruments import FRA, Deposit
 from spxa.rates.overnight import (
     CompoundedRate,
     compounded_overnight_rate,
@@ -83,6 +86,9 @@ __all__ = [
     "fixed_leg",
     "ibor_leg",
     "overnight_leg",
+    # instruments
+    "Deposit",
+    "FRA",
     # pricing
     "CashflowRow",
     "cashflow_table",
