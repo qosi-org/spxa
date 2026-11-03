@@ -43,7 +43,8 @@ Deltas
     :meth:`VolSurface.delta` and :meth:`VolSurface.strike_from_delta`.
 Spline smoothing
     :func:`fengler_smooth` (:class:`FenglerSmile`): Fengler's convex,
-    monotone natural cubic call-price spline.
+    monotone natural cubic call-price spline; :func:`fengler_surface`
+    (:class:`FenglerSurface`) adds the calendar condition across expiries.
 Arbitrage repair
     :func:`call_arbitrage_constraints` and :func:`repair_call_prices`:
     minimal weighted l1 repair of a call grid by linear programming
@@ -81,7 +82,14 @@ from spxa.vol.conventions import (
     total_variance_from_price,
 )
 from spxa.vol.delta import atm_dns_strike, black_delta, strike_from_delta
-from spxa.vol.fengler import FenglerSmile, fengler_smooth, spline_matrices
+from spxa.vol.fengler import (
+    FenglerSmile,
+    FenglerSurface,
+    fengler_smooth,
+    fengler_surface,
+    spline_eval_matrix,
+    spline_matrices,
+)
 from spxa.vol.density import ImpliedDistribution
 from spxa.vol.interpolation import PriceInterpolatedSurface
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
@@ -179,4 +187,7 @@ __all__ = [
     "fengler_smooth",
     "FenglerSmile",
     "spline_matrices",
+    "fengler_surface",
+    "FenglerSurface",
+    "spline_eval_matrix",
 ]

@@ -87,3 +87,69 @@ def test_validation() -> None:
         fengler_smooth(K[:2], C[:2], F, D)
     with pytest.raises(ValueError):
         fengler_smooth(K, C, -1.0, D)
+
+
+# ------------------------------------------------------------- multi-expiry
+def test_eval_matrix_matches_spline() -> None:
+    from spxa.vol.fengler import spline_eval_matrix
+
+    sm = fengler_smooth(K, C, F, D, T)
+    pts = np.linspace(sm.knots[0], sm.knots[-1], 97)
+    z = np.concatenate([sm.values, sm.gammas[1:-1]])
+    assert spline_eval_matrix(sm.knots, pts) @ z == pytest.approx(sm.normalised(pts), abs=1e-14)
+    assert spline_eval_matrix(sm.knots, pts, 1) @ z == pytest.approx(sm.normalised(pts, 1), abs=1e-13)
+    with pytest.raises(ValueError):
+        spline_eval_matrix(sm.knots, pts, 2)
+
+
+def _surface_inputs(noise: float, seed: int) -> tuple:
+    from spxa.market.curves import EquityForward
+
+    fwd = EquityForward(100.0, 0.03, dividend_yield=0.01)
+    Ts = [0.25, 0.5, 1.0]
+    rng = np.random.default_rng(seed)
+    strikes, calls, Fs, Ds = [], [], [], []
+    for t in Ts:
+        Ft, Dt = fwd.forward(t), fwd.discount(t)
+        Kt = Ft * np.linspace(0.7, 1.4, 21)
+        sig = SS.implied_vol(np.log(Kt / Ft), t)
+        c = black_price(Ft, Kt, t, sig, Dt, "call") + noise * rng.standard_normal(Kt.size)
+        strikes.append(Kt), calls.append(c), Fs.append(Ft), Ds.append(Dt)
+    return Ts, strikes, calls, Fs, Ds
+
+
+def test_surface_removes_calendar_arbitrage() -> None:
+    from spxa.vol.fengler import fengler_smooth as one
+    from spxa.vol.fengler import fengler_surface
+
+    Ts, strikes, calls, Fs, Ds = _surface_inputs(0.02, 2)
+    # stale upside quotes at 6M: priced with one year of variance above 1.15 F
+    k1 = strikes[1]
+    up = k1 > 1.15 * Fs[1]
+    sig = SS.implied_vol(np.log(k1[up] / Fs[1]), 1.05)
+    calls[1] = calls[1].copy()
+    calls[1][up] = black_price(Fs[1], k1[up], 1.05, sig, Ds[1], "call")
+    # independent fits cross in time there; the joint fit does not
+    indep = [one(k, c, f, d, t) for t, k, c, f, d in zip(Ts, strikes, calls, Fs, Ds)]
+    u = np.linspace(0.7, 1.4, 401)
+    cross = max(float(np.max(a.normalised(u) - b.normalised(u))) for a, b in zip(indep, indep[1:]))
+    assert cross > 1e-4
+    surf = fengler_surface(Ts, strikes, calls, Fs, Ds)
+    # Bernstein rows make the condition hold between sample points too
+    assert surf.calendar_violation(20001) < 1e-12
+    for s in surf.slices:
+        assert np.all(s.gammas >= 0)
+    assert surf.slice(0.5).expiry == 0.5
+    with pytest.raises(ValueError):
+        surf.slice(0.7)
+
+
+def test_surface_leaves_clean_data_alone() -> None:
+    from spxa.vol.fengler import fengler_surface
+
+    Ts, strikes, calls, Fs, Ds = _surface_inputs(0.0, 0)
+    surf = fengler_surface(Ts, strikes, calls, Fs, Ds, smoothing=1e-12)
+    for s, k, c in zip(surf.slices, strikes, calls):
+        assert s.price(k) == pytest.approx(c, abs=5e-5)
+    with pytest.raises(ValueError):
+        fengler_surface([1.0, 0.5], strikes[:2], calls[:2], Fs[:2], Ds[:2])

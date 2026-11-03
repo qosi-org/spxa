@@ -36,7 +36,14 @@ from scipy.optimize import minimize
 
 from spxa.market.implied import implied_black_volatility
 
-__all__ = ["FenglerSmile", "fengler_smooth", "spline_matrices"]
+__all__ = [
+    "FenglerSmile",
+    "FenglerSurface",
+    "fengler_smooth",
+    "fengler_surface",
+    "spline_matrices",
+    "spline_eval_matrix",
+]
 
 
 def spline_matrices(u: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -56,6 +63,64 @@ def spline_matrices(u: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if j < n - 3:
             R[j, j + 1] = R[j + 1, j] = h[j + 1] / 6
     return Q, R
+
+
+def spline_eval_matrix(u: np.ndarray, points: np.ndarray, nu: int = 0) -> np.ndarray:
+    """Matrix ``E`` with ``g^{(nu)}(points) = E @ [g_1..g_n, gamma_2..gamma_{n-1}]``.
+
+    This is for a natural spline, with ``nu`` = 0 (values) or 1 (slopes).
+    """
+    u = np.asarray(u, dtype=float)
+    x = np.asarray(points, dtype=float)
+    n = u.size
+    i = np.clip(np.searchsorted(u, x, side="right") - 1, 0, n - 2)
+    h = u[i + 1] - u[i]
+    a, b = x - u[i], u[i + 1] - x
+    full = np.zeros((x.size, 2 * n))  # values, then gammas at all n knots
+    rows = np.arange(x.size)
+    if nu == 0:
+        full[rows, i] = b / h
+        full[rows, i + 1] = a / h
+        full[rows, n + i] = b**3 / (6 * h) - h * b / 6
+        full[rows, n + i + 1] = a**3 / (6 * h) - h * a / 6
+    elif nu == 1:
+        full[rows, i] = -1 / h
+        full[rows, i + 1] = 1 / h
+        full[rows, n + i] = -(b**2) / (2 * h) + h / 6
+        full[rows, n + i + 1] = a**2 / (2 * h) - h / 6
+    else:
+        raise ValueError("nu must be 0 or 1")
+    return np.hstack([full[:, :n], full[:, n + 1 : 2 * n - 1]])
+
+
+def _calendar_rows(u: np.ndarray, upper: "FenglerSmile") -> tuple[np.ndarray, np.ndarray]:
+    r"""Linear rows ``A z <= b`` that give :math:`g \le g_{\mathrm{upper}}` on the overlap.
+
+    Between consecutive points of the union of both knot sets (each
+    interval halved), :math:`d = g - g_{\mathrm{upper}}` is a cubic. On
+    :math:`[p, q]` its Bernstein coefficients are
+    :math:`d(p),\ d(p) + \tfrac{h}{3} d'(p),\ d(q) - \tfrac{h}{3} d'(q),\ d(q)`.
+    These are linear in the spline parameters, and making them all
+    non-positive bounds :math:`d \le 0` everywhere, not just at sample
+    points.
+    """
+    lo, hi = max(u[0], upper.knots[0]), min(u[-1], upper.knots[-1])
+    n = u.size
+    if lo >= hi:
+        return np.zeros((0, 2 * n - 2)), np.zeros(0)
+    br = np.union1d(u, upper.knots)
+    br = np.union1d(br[(br > lo) & (br < hi)], [lo, hi])
+    br = np.union1d(br, 0.5 * (br[1:] + br[:-1]))
+    p, q = br[:-1], br[1:]
+    h = (q - p)[:, None]
+    E0p, E1p = spline_eval_matrix(u, p), spline_eval_matrix(u, p, 1)
+    E0q, E1q = spline_eval_matrix(u, q), spline_eval_matrix(u, q, 1)
+    U0p, U1p = np.asarray(upper.normalised(p), float), np.asarray(upper.normalised(p, 1), float)
+    U0q, U1q = np.asarray(upper.normalised(q), float), np.asarray(upper.normalised(q, 1), float)
+    hv = h[:, 0]
+    A = np.vstack([E0p, E0p + h / 3 * E1p, E0q - h / 3 * E1q, E0q[-1:]])
+    b = np.concatenate([U0p, U0p + hv / 3 * U1p, U0q - hv / 3 * U1q, U0q[-1:]])
+    return A, b
 
 
 @dataclass(frozen=True)
@@ -130,6 +195,7 @@ def fengler_smooth(
     expiry: Optional[float] = None,
     smoothing: float = 1e-6,
     weights: Optional[Sequence[float]] = None,
+    upper: Optional[FenglerSmile] = None,
 ) -> FenglerSmile:
     """Fit Fengler's arbitrage-free natural cubic spline to call prices.
 
@@ -144,6 +210,10 @@ def fengler_smooth(
         squared fit errors in normalised price units.
     weights
         Weights :math:`w_i` of the squared errors (default 1).
+    upper
+        A later expiry's fit. The calendar condition
+        :math:`g(u) \\le g_{\\mathrm{upper}}(u)` is then imposed on the whole
+        overlap of the two ranges (see :func:`_calendar_rows`).
     """
     K = np.asarray(strikes, dtype=float)
     C = np.asarray(calls, dtype=float)
@@ -179,6 +249,10 @@ def fengler_smooth(
     right = np.zeros(n + m)
     right[n - 2], right[n - 1], right[n + m - 1] = -1 / h[-1], 1 / h[-1], h[-1] / 6
     lower = np.maximum(1 - u, 0.0)
+    cal_rows = np.zeros((0, n + m))
+    cal_rhs = np.zeros(0)
+    if upper is not None:
+        cal_rows, cal_rhs = _calendar_rows(u, upper)
     cons = [
         {"type": "eq", "fun": lambda z: A_eq @ z, "jac": lambda z: A_eq},
         {
@@ -187,9 +261,16 @@ def fengler_smooth(
             "jac": lambda z: np.vstack([left, -right]),
         },
     ]
+    if cal_rhs.size:
+        cons.append(
+            {"type": "ineq", "fun": lambda z: cal_rhs - cal_rows @ z, "jac": lambda z: -cal_rows}
+        )
     bounds = [(lo, 1.0) for lo in lower] + [(0.0, None)] * m
     # start from the data, projected into the bounds, with consistent gammas
     g0 = np.clip(y, lower, 1.0)
+    if upper is not None:
+        inside = (u >= upper.knots[0]) & (u <= upper.knots[-1])
+        g0[inside] = np.minimum(g0[inside], np.asarray(upper.normalised(u[inside]), float))
     c0 = np.maximum(np.linalg.solve(R, Q.T @ g0), 0.0)
     res = minimize(
         obj,
@@ -211,3 +292,62 @@ def fengler_smooth(
         float(discount),
         expiry,
     )
+
+
+@dataclass(frozen=True)
+class FenglerSurface:
+    """Fengler slices for increasing expiries, calendar-consistent at fixed :math:`K/F`."""
+
+    expiries: np.ndarray
+    slices: tuple[FenglerSmile, ...]
+
+    def slice(self, T: float) -> FenglerSmile:
+        i = int(np.argmin(np.abs(self.expiries - T)))
+        if abs(self.expiries[i] - T) > 1e-12:
+            raise ValueError("T is not a fitted expiry")
+        return self.slices[i]
+
+    def calendar_violation(self, points: int = 401) -> float:
+        """Largest :math:`g_{T_i}(u) - g_{T_{i+1}}(u)` over overlapping ranges (<= 0 if none)."""
+        worst = -np.inf
+        for a, b in zip(self.slices, self.slices[1:]):
+            lo, hi = max(a.knots[0], b.knots[0]), min(a.knots[-1], b.knots[-1])
+            if lo < hi:
+                u = np.linspace(lo, hi, points)
+                worst = max(
+                    worst, float(np.max(np.asarray(a.normalised(u)) - np.asarray(b.normalised(u))))
+                )
+        return worst
+
+
+def fengler_surface(
+    expiries: Sequence[float],
+    strikes: Sequence[Sequence[float]],
+    calls: Sequence[Sequence[float]],
+    forwards: Sequence[float],
+    discounts: Sequence[float],
+    smoothing: float = 1e-6,
+    weights: Optional[Sequence[Optional[Sequence[float]]]] = None,
+) -> FenglerSurface:
+    """Smooth several expiries without calendar arbitrage (Fengler, 2009).
+
+    The longest expiry is fitted first, and each shorter one is fitted
+    under the calendar condition against the next (normalised calls
+    non-decreasing in :math:`T` at fixed :math:`K/F`, which is exact for
+    proportional dividends).
+    """
+    Ts = np.asarray(expiries, dtype=float)
+    n = Ts.size
+    if n == 0 or np.any(np.diff(Ts) <= 0) or Ts[0] <= 0:
+        raise ValueError("expiries must be positive and strictly increasing")
+    if not (len(strikes) == len(calls) == len(forwards) == len(discounts) == n):
+        raise ValueError("need strikes, calls, forward and discount for every expiry")
+    ws = list(weights) if weights is not None else [None] * n
+    out: list[FenglerSmile] = [None] * n  # type: ignore[list-item]
+    upper: Optional[FenglerSmile] = None
+    for i in range(n - 1, -1, -1):
+        upper = fengler_smooth(
+            strikes[i], calls[i], forwards[i], discounts[i], float(Ts[i]), smoothing, ws[i], upper
+        )
+        out[i] = upper
+    return FenglerSurface(Ts, tuple(out))
