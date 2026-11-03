@@ -190,5 +190,50 @@ class VolSurface:
         up, dn = self.implied_vol_k(np.array([h, -h]), T)
         return float((up - dn) / (2 * h))
 
+    # ----------------------------------------------------------------- delta
+    def _carry(self, T: float) -> float:
+        spot = getattr(self.forward_curve, "spot", None)
+        if spot is None:
+            raise ValueError("spot deltas need a forward curve with a spot")
+        return float(self.forward(T)) * float(self.discount(T)) / float(spot)
+
+    def delta(
+        self,
+        K: Any,
+        T: float,
+        option: str = "call",
+        kind: str = "forward",
+        premium_adjusted: bool = False,
+    ) -> Any:
+        """Black delta at the surface volatility (see :mod:`spxa.vol.delta`)."""
+        from spxa.vol.delta import black_delta
+
+        carry = self._carry(T) if kind == "spot" else 1.0
+        F = float(self.forward(T))
+        return black_delta(F, K, T, self.implied_vol(K, T), option, kind, premium_adjusted, carry)
+
+    def strike_from_delta(
+        self,
+        delta: float,
+        T: float,
+        option: str = "call",
+        kind: str = "forward",
+        premium_adjusted: bool = False,
+    ) -> float:
+        """Strike whose delta, at its own smile volatility, equals ``delta``."""
+        from spxa.vol.delta import strike_from_delta
+
+        carry = self._carry(T) if kind == "spot" else 1.0
+        return strike_from_delta(
+            delta,
+            float(self.forward(T)),
+            T,
+            lambda k: float(self.implied_vol_k(k, T)),
+            option,
+            kind,
+            premium_adjusted,
+            carry,
+        )
+
     def __repr__(self) -> str:
         return f"VolSurface(model={type(self.model).__name__})"

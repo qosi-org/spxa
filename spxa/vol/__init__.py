@@ -37,6 +37,10 @@ Surfaces
     total variances -> SVI/eSSVI/SSVI fit -> surface
     (:class:`SurfaceBuild`, :class:`ForwardTermStructure`,
     :func:`chain_total_variance`).
+Deltas
+    :func:`black_delta` (forward/spot, premium-adjusted),
+    :func:`strike_from_delta` and :func:`atm_dns_strike`, also as
+    :meth:`VolSurface.delta` and :meth:`VolSurface.strike_from_delta`.
 Arbitrage repair
     :func:`call_arbitrage_constraints` and :func:`repair_call_prices`:
     minimal weighted l1 repair of a call grid by linear programming
@@ -73,6 +77,7 @@ from spxa.vol.conventions import (
     total_variance,
     total_variance_from_price,
 )
+from spxa.vol.delta import atm_dns_strike, black_delta, strike_from_delta
 from spxa.vol.density import ImpliedDistribution
 from spxa.vol.interpolation import PriceInterpolatedSurface
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
@@ -162,4 +167,8 @@ __all__ = [
     "repair_call_prices",
     "ArbitrageConstraints",
     "RepairResult",
+    # deltas
+    "black_delta",
+    "strike_from_delta",
+    "atm_dns_strike",
 ]
