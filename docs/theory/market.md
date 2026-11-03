@@ -72,7 +72,7 @@ $$
 \text{Bachelier: } P\bigl[\eta(F-K)\Phi(\eta d) + \sigma_N\sqrt T\,\varphi(d)\bigr], \quad d = \frac{F-K}{\sigma_N\sqrt T}.
 $$
 
-Shifted Black applies Black to $F + s$ and $K + s$, allowing negative rates. Each formula returns its Greeks analytically; the tests check every Greek against finite differences and identities such as volga $=$ vega $\cdot d_1 d_2/\sigma$. At the money the Bachelier price is $P\sigma_N\sqrt{T/(2\pi)}$.
+When $F\Phi(d_1) - K\Phi(d_2)$ would cancel (small total volatility near the money, or far wings), `black_price` recomputes the out-of-the-money value with the normalised formulation of Section 4, so the relative error stays below $5\times10^{-14}$ even where the textbook formula loses nine digits. Shifted Black applies Black to $F + s$ and $K + s$, allowing negative rates. Each formula returns its Greeks analytically; the tests check every Greek against finite differences and identities such as volga $=$ vega $\cdot d_1 d_2/\sigma$. At the money the Bachelier price is $P\sigma_N\sqrt{T/(2\pi)}$.
 
 ---
 

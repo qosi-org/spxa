@@ -95,7 +95,46 @@ def black_price(F: Any, K: Any, T: Any, sigma: Any, df: Any = 1.0, option: Any =
     df = np.asarray(df, dtype=float)
     val = eta * (F * ndtr(eta * d1) - K * ndtr(eta * d2))
     intrinsic = np.maximum(eta * (F - K), 0.0)
+    val = _repair_cancellation(F, K, sd, live, d1, d2, eta, val)
     return _out(df * np.where(live, val, intrinsic))
+
+
+# Relative accuracy lost by F N(.) - K N(.) is about (larger term) / (result);
+# beyond this amplification the out-of-the-money value is recomputed with the
+# cancellation-free normalised formulation of spxa.market.implied.
+_MAX_AMPLIFICATION = 64.0
+
+
+def _repair_cancellation(
+    F: np.ndarray,
+    K: np.ndarray,
+    sd: np.ndarray,
+    live: np.ndarray,
+    d1: np.ndarray,
+    d2: np.ndarray,
+    eta: np.ndarray,
+    val: np.ndarray,
+) -> np.ndarray:
+    """Recompute prices whose closed form cancels catastrophically."""
+    shape = np.broadcast_shapes(F.shape, K.shape, sd.shape, eta.shape, val.shape)
+    Fb, Kb, sdb, liveb, d1b, d2b = np.broadcast_arrays(F, K, sd, live, d1, d2)
+    eo = np.where(Kb >= Fb, 1.0, -1.0)  # out-of-the-money side
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        big = Fb * ndtr(eo * d1b)
+        otm = eo * (big - Kb * ndtr(eo * d2b))
+        bad = liveb & ~(otm * _MAX_AMPLIFICATION >= big)
+    if not np.any(bad):
+        return val
+    from spxa.market.implied import normalised_black_call
+
+    out = np.array(np.broadcast_to(val, shape), dtype=float)
+    etab = np.broadcast_to(eta, shape)
+    Fs, Ks, sds, es = Fb[bad], Kb[bad], sdb[bad], etab[bad]
+    x = np.log1p((Fs - Ks) / Ks)  # F - K is exact near the money, log(F/K) is not
+    # b(-|x|, s) is the normalised out-of-the-money value
+    otm_fixed = np.sqrt(Fs * Ks) * np.atleast_1d(normalised_black_call(-np.abs(x), sds))
+    out[bad] = otm_fixed + np.maximum(es * (Fs - Ks), 0.0)
+    return out
 
 
 def black_greeks(

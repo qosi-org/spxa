@@ -164,3 +164,53 @@ def test_extreme_strikes_are_finite():
     c = black_price(1.0, K, 1.0, 0.3)
     assert np.all(np.isfinite(c)) and np.all(c >= 0)
     assert c[0] == pytest.approx(1.0 - 1e-8, abs=1e-15) and c[-1] == pytest.approx(0.0, abs=1e-300)
+
+
+def _mp_black(F: float, K: float, sd: float, eta: int) -> float:
+    import mpmath as mp
+
+    with mp.workdps(50):
+        f, k, s = mp.mpf(F), mp.mpf(K), mp.mpf(sd)
+        x = mp.log(f / k)
+        # out-of-the-money value via the symmetric form, so no cancellation at 50 digits
+        xo = -abs(x)
+        b = mp.exp(xo / 2) * mp.ncdf(xo / s + s / 2) - mp.exp(-xo / 2) * mp.ncdf(xo / s - s / 2)
+        otm = mp.sqrt(f * k) * b
+        return float(otm + max(eta * (f - k), 0))
+
+
+@pytest.mark.parametrize(
+    "F,K,sd",
+    [
+        (100.0, 100.0, 1e-8),
+        (100.0, 100.0, 1e-4),
+        (100.0, 100.0001, 1e-3),
+        (100.0, 150.0, 0.05),
+        (100.0, 60.0, 0.05),
+        (100.0, 300.0, 0.2),
+        (0.03, 0.031, 0.01),
+    ],
+)
+def test_black_small_total_vol_is_cancellation_free(F, K, sd):
+    # F N(d1) - K N(d2) loses up to 9 digits here; the repaired price keeps ~14
+    for eta, opt in ((1, "call"), (-1, "put")):
+        ref = _mp_black(F, K, sd, eta)
+        got = black_price(F, K, 1.0, sd, 1.0, opt)
+        assert abs(got / ref - 1) < 5e-14, (F, K, sd, opt, got, ref)
+
+
+def test_black_repair_vectorised_and_greeks_price():
+    K = np.array([[99.99, 100.0, 100.000001], [90.0, 150.0, 300.0]])
+    sd = np.array([[1e-7], [0.05]])
+    out = black_price(100.0, K, 1.0, sd, 0.9, np.array([True, False, True]))
+    ref = np.array(
+        [
+            [0.9 * _mp_black(100.0, k, s, e) for k, e in zip(row, (1, -1, 1))]
+            for row, s in zip(K, sd[:, 0])
+        ]
+    )
+    # far in the wing the price is exp(-x^2/2s^2)-conditioned in x: allow eps * |log price|
+    tol = 5e-14 * np.maximum(1.0, np.abs(np.log(ref)) / 50.0)
+    assert np.all(np.abs(out / ref - 1) < tol)
+    g = black_greeks(100.0, 150.0, 1.0, 0.05)
+    assert g["price"] == black_price(100.0, 150.0, 1.0, 0.05)
