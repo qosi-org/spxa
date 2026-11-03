@@ -23,11 +23,12 @@ from __future__ import annotations
 import abc
 import datetime as _dt
 from dataclasses import dataclass
-from typing import Mapping, Optional, Sequence, Union
+from typing import Any, Mapping, Optional, Sequence, Union
 
 from spxa.market.curves import YieldCurve
 from spxa.rates.cashflows import Cashflow, IborCoupon, OvernightCoupon
 from spxa.rates.futures import OvernightFuture, RateFuture
+from spxa.rates.indices import OvernightIndex
 from spxa.rates.instruments import FRA, Deposit
 from spxa.rates.swaps import BasisSwap, Swap
 
@@ -39,6 +40,7 @@ __all__ = [
     "SwapHelper",
     "BasisSwapHelper",
     "last_curve_date",
+    "quarterly_futures",
 ]
 
 Curves = Mapping[str, YieldCurve]
@@ -160,6 +162,34 @@ class FutureHelper(CurveHelper):
 
     def implied_quote(self, curves: Curves) -> float:
         return self.future.implied_price(self._get(curves, self.curve), self.a, self.sigma)
+
+
+def quarterly_futures(
+    reference_date: Any,
+    prices: Sequence[float],
+    index: Optional[OvernightIndex] = None,
+    curve: str = "discount",
+    a: float = 0.0,
+    sigma: float = 0.0,
+) -> list[FutureHelper]:
+    """Helpers for consecutive quarterly 3M overnight futures from the next IMM date.
+
+    ``prices[i]`` is the price of the ``i``-th contract. Contract ``i``
+    runs from IMM date ``i`` to IMM date ``i + 1``, so the strip pins
+    every forward between its first and last IMM dates.
+    """
+    from spxa.market.dates import to_date
+    from spxa.rates.futures import next_imm_date
+    from spxa.rates.indices import SOFR
+
+    idx = index if index is not None else SOFR
+    d = next_imm_date(to_date(reference_date))
+    out = []
+    for p in prices:
+        fut = OvernightFuture.from_imm(d, float(p), idx)
+        out.append(FutureHelper(fut, float(p), curve, a, sigma))
+        d = fut.end
+    return out
 
 
 @dataclass
