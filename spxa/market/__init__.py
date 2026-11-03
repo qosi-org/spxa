@@ -28,6 +28,9 @@ Quotes
 Static arbitrage
     :func:`check_call_prices` (bounds, vertical spreads, butterflies),
     :func:`check_calendar_arbitrage`, :func:`check_surface_quotes`.
+Put–call parity
+    :func:`implied_forward` (weighted, outlier-robust regression of
+    :math:`C-P` on strike) and :func:`implied_forwards`.
 """
 
 from spxa.market.dates import (
@@ -84,6 +87,7 @@ from spxa.market.implied import (
     implied_normal_volatility,
     normalised_black_call,
 )
+from spxa.market.parity import ParityFit, implied_forward, implied_forwards
 from spxa.market.quotes import OptionChain, OptionQuote, OptionSurfaceQuotes
 from spxa.market.schedule import (
     AccrualPeriod,
@@ -154,4 +158,8 @@ __all__ = [
     "check_calendar_arbitrage",
     "check_call_prices",
     "check_surface_quotes",
+    # put-call parity
+    "ParityFit",
+    "implied_forward",
+    "implied_forwards",
 ]
