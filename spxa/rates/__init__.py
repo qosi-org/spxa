@@ -28,6 +28,10 @@ Bonds
 Pricing
     :func:`leg_pv`, :func:`leg_annuity`, :func:`cashflow_table` on
     separate discount and projection curves.
+Curve construction
+    :class:`PiecewiseCurve` on discount-factor nodes with the
+    interpolation schemes :class:`LogLinearDiscount` and
+    :class:`LinearZero`.
 """
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
@@ -69,6 +73,14 @@ from spxa.rates.indices import (
     OvernightIndex,
     available_indices,
     get_index,
+)
+from spxa.rates.interpolation import (
+    FittedInterpolation,
+    InterpolationScheme,
+    LinearZero,
+    LogLinearDiscount,
+    PiecewiseCurve,
+    discrete_forwards,
 )
 from spxa.rates.pricing import CashflowRow, cashflow_table, leg_annuity, leg_pv
 from spxa.rates.instruments import FRA, Deposit
@@ -155,4 +167,11 @@ __all__ = [
     "cashflow_table",
     "leg_annuity",
     "leg_pv",
+    # curve construction
+    "PiecewiseCurve",
+    "InterpolationScheme",
+    "FittedInterpolation",
+    "LogLinearDiscount",
+    "LinearZero",
+    "discrete_forwards",
 ]
