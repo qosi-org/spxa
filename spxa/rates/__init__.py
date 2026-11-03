@@ -20,11 +20,14 @@ Futures
 Swaps
     :class:`Swap`, :func:`ois_swap`, :func:`vanilla_swap`,
     :class:`BasisSwap`, :func:`basis_swap`.
+Bonds
+    :class:`FixedRateBond` (street yield, duration, convexity, z-spread).
 Pricing
     :func:`leg_pv`, :func:`leg_annuity`, :func:`cashflow_table` on
     separate discount and projection curves.
 """
 
+from spxa.rates.bonds import BondCashflow, FixedRateBond
 from spxa.rates.cashflows import (
     Cashflow,
     FixedCoupon,
@@ -121,6 +124,9 @@ __all__ = [
     "basis_swap",
     "ois_swap",
     "vanilla_swap",
+    # bonds
+    "BondCashflow",
+    "FixedRateBond",
     # pricing
     "CashflowRow",
     "cashflow_table",
