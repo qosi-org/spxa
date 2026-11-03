@@ -1,0 +1,177 @@
+r"""Interest-rate swaps.
+
+A :class:`Swap` exchanges a fixed leg for a floating leg. For the payer of
+fixed,
+
+.. math:: \mathrm{PV} = \mathrm{PV}_{\text{float}} - \mathrm{PV}_{\text{fixed}}
+          = (S - K)\,A, \qquad A = \sum_i N_i\tau_i P(t^{\text{pay}}_i),
+
+where :math:`S = \mathrm{PV}_{\text{float}}/A` is the par rate. The par
+spread is the margin over the floating index that makes the swap worth
+zero, :math:`(\mathrm{PV}_{\text{fixed}} - \mathrm{PV}_{\text{float}})/A_{\text{float}}`.
+
+:func:`ois_swap` builds overnight-indexed swaps (both legs on the same
+schedule, compounded in arrears with a payment lag, as for SOFR and €STR
+OIS).
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+from dataclasses import dataclass, field
+from typing import Optional, Sequence
+
+from spxa.market.calendars import get_calendar
+from spxa.market.curves import YieldCurve
+from spxa.market.dates import DateLike, add_tenor
+from spxa.market.schedule import Schedule, adjust
+from spxa.rates.cashflows import (
+    Cashflow,
+    FixedCoupon,
+    SimpleCashflow,
+    fixed_leg,
+    overnight_leg,
+)
+from spxa.rates.indices import SOFR, FixingHistory, OvernightIndex
+from spxa.rates.pricing import leg_annuity, leg_pv
+
+__all__ = ["Swap", "ois_swap"]
+
+
+@dataclass(frozen=True)
+class Swap:
+    """Fixed-for-floating swap.
+
+    Parameters
+    ----------
+    fixed, floating : list of cashflows
+        The two legs (amounts positive).
+    payer : bool
+        ``True`` if we pay the fixed leg.
+    """
+
+    fixed: Sequence[Cashflow]
+    floating: Sequence[Cashflow]
+    payer: bool = True
+    _meta: dict[str, str] = field(default_factory=dict, compare=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if not self.fixed or not self.floating:
+            raise ValueError("both legs must have cashflows")
+        if not all(isinstance(c, FixedCoupon) for c in self.fixed):
+            raise ValueError("the fixed leg must consist of FixedCoupon")
+
+    @property
+    def sign(self) -> float:
+        return 1.0 if self.payer else -1.0
+
+    @property
+    def fixed_rate(self) -> float:
+        rates = {c.rate for c in self.fixed if isinstance(c, FixedCoupon)}
+        if len(rates) != 1:
+            raise ValueError("fixed leg has several rates")
+        return rates.pop()
+
+    @property
+    def start(self) -> _dt.date:
+        return min(
+            c.start
+            for c in list(self.fixed) + list(self.floating)
+            if not isinstance(c, SimpleCashflow)
+        )
+
+    @property
+    def maturity(self) -> _dt.date:
+        return max(c.payment_date for c in list(self.fixed) + list(self.floating))
+
+    def fixed_leg_pv(
+        self, discount: YieldCurve, valuation_date: Optional[DateLike] = None
+    ) -> float:
+        return leg_pv(self.fixed, discount, valuation_date=valuation_date)
+
+    def floating_leg_pv(
+        self,
+        discount: YieldCurve,
+        projection: Optional[YieldCurve] = None,
+        fixings: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> float:
+        return leg_pv(self.floating, discount, projection, fixings, valuation_date)
+
+    def annuity(self, discount: YieldCurve, valuation_date: Optional[DateLike] = None) -> float:
+        """Fixed-leg annuity :math:`\\sum N\\tau P`."""
+        return leg_annuity(self.fixed, discount, valuation_date)
+
+    def pv(
+        self,
+        discount: YieldCurve,
+        projection: Optional[YieldCurve] = None,
+        fixings: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> float:
+        fl = self.floating_leg_pv(discount, projection, fixings, valuation_date)
+        fx = self.fixed_leg_pv(discount, valuation_date)
+        return self.sign * (fl - fx)
+
+    def par_rate(
+        self,
+        discount: YieldCurve,
+        projection: Optional[YieldCurve] = None,
+        fixings: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> float:
+        """Fixed rate that makes the swap worth zero."""
+        return self.floating_leg_pv(discount, projection, fixings, valuation_date) / self.annuity(
+            discount, valuation_date
+        )
+
+    def par_spread(
+        self,
+        discount: YieldCurve,
+        projection: Optional[YieldCurve] = None,
+        fixings: Optional[FixingHistory] = None,
+        valuation_date: Optional[DateLike] = None,
+    ) -> float:
+        """Margin over the floating index (added to every coupon) for zero PV."""
+        fl = self.floating_leg_pv(discount, projection, fixings, valuation_date)
+        fx = self.fixed_leg_pv(discount, valuation_date)
+        return (fx - fl) / leg_annuity(self.floating, discount, valuation_date)
+
+
+def _dates(
+    trade_date: DateLike, tenor: str, calendar: str, spot_lag: int, forward_start: Optional[str]
+) -> tuple[_dt.date, _dt.date]:
+    cal = get_calendar(calendar)
+    start = cal.add_business_days(cal.next_business_day(trade_date), spot_lag)
+    if forward_start is not None:
+        start = adjust(add_tenor(start, forward_start), cal, "MF")
+    return start, add_tenor(start, tenor)
+
+
+def ois_swap(
+    trade_date: DateLike,
+    tenor: str,
+    fixed_rate: float,
+    index: OvernightIndex = SOFR,
+    notional: float = 1.0,
+    payer: bool = True,
+    frequency: str = "1Y",
+    payment_lag: int = 2,
+    spot_lag: int = 2,
+    fixed_day_count: Optional[str] = None,
+    forward_start: Optional[str] = None,
+    spread: float = 0.0,
+) -> Swap:
+    """Overnight-indexed swap starting ``spot_lag`` business days after ``trade_date``.
+
+    Both legs share an annual (by default) schedule on the index calendar,
+    modified following, rolled from the unadjusted start; the floating leg
+    compounds the index in arrears. Swaps shorter than ``frequency`` have a
+    single period.
+    """
+    start, end = _dates(trade_date, tenor, index.calendar, spot_lag, forward_start)
+    sch = Schedule(start, end, frequency, index.calendar, "MF", stub="short_back")
+    dc = fixed_day_count or index.day_count
+    fx = fixed_leg(sch, notional, fixed_rate, dc, payment_lag, index.calendar)
+    fl = overnight_leg(sch, notional, index, spread=spread, payment_lag=payment_lag)
+    return Swap(fx, fl, payer, {"type": "OIS", "index": index.name, "tenor": tenor})
