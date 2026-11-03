@@ -18,7 +18,7 @@ Futures
     :func:`imm_date`, :func:`next_imm_date`, :func:`imm_code`,
     :func:`imm_from_code`, :class:`RateFuture` with Hull–White convexity.
 Swaps
-    :class:`Swap`, :func:`ois_swap`.
+    :class:`Swap`, :func:`ois_swap`, :func:`vanilla_swap`.
 Pricing
     :func:`leg_pv`, :func:`leg_annuity`, :func:`cashflow_table` on
     separate discount and projection curves.
@@ -61,7 +61,7 @@ from spxa.rates.indices import (
 )
 from spxa.rates.pricing import CashflowRow, cashflow_table, leg_annuity, leg_pv
 from spxa.rates.instruments import FRA, Deposit
-from spxa.rates.swaps import Swap, ois_swap
+from spxa.rates.swaps import Swap, ois_swap, vanilla_swap
 from spxa.rates.overnight import (
     CompoundedRate,
     compounded_overnight_rate,
@@ -117,6 +117,7 @@ __all__ = [
     # swaps
     "Swap",
     "ois_swap",
+    "vanilla_swap",
     # pricing
     "CashflowRow",
     "cashflow_table",

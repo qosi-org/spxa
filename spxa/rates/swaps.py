@@ -12,7 +12,8 @@ zero, :math:`(\mathrm{PV}_{\text{fixed}} - \mathrm{PV}_{\text{float}})/A_{\text{
 
 :func:`ois_swap` builds overnight-indexed swaps (both legs on the same
 schedule, compounded in arrears with a payment lag, as for SOFR and €STR
-OIS).
+OIS); :func:`vanilla_swap` builds fixed-versus-IBOR swaps (EUR market
+standard: annual 30/360 fixed against the index tenor).
 """
 
 from __future__ import annotations
@@ -30,12 +31,13 @@ from spxa.rates.cashflows import (
     FixedCoupon,
     SimpleCashflow,
     fixed_leg,
+    ibor_leg,
     overnight_leg,
 )
-from spxa.rates.indices import SOFR, FixingHistory, OvernightIndex
+from spxa.rates.indices import EURIBOR6M, SOFR, FixingHistory, IborIndex, OvernightIndex
 from spxa.rates.pricing import leg_annuity, leg_pv
 
-__all__ = ["Swap", "ois_swap"]
+__all__ = ["Swap", "ois_swap", "vanilla_swap"]
 
 
 @dataclass(frozen=True)
@@ -175,3 +177,39 @@ def ois_swap(
     fx = fixed_leg(sch, notional, fixed_rate, dc, payment_lag, index.calendar)
     fl = overnight_leg(sch, notional, index, spread=spread, payment_lag=payment_lag)
     return Swap(fx, fl, payer, {"type": "OIS", "index": index.name, "tenor": tenor})
+
+
+def vanilla_swap(
+    trade_date: DateLike,
+    tenor: str,
+    fixed_rate: float,
+    index: IborIndex = EURIBOR6M,
+    notional: float = 1.0,
+    payer: bool = True,
+    fixed_tenor: str = "1Y",
+    fixed_day_count: str = "30/360",
+    float_tenor: Optional[str] = None,
+    spot_lag: Optional[int] = None,
+    forward_start: Optional[str] = None,
+    spread: float = 0.0,
+    use_index_dates: bool = True,
+) -> Swap:
+    """Fixed versus term-rate swap starting at the index spot date.
+
+    Both schedules are generated backward from the maturity on the index
+    calendar (modified following, end-of-month); the floating coupons fix
+    ``index.fixing_days`` before each period start and are projected over
+    the index's own value and maturity dates (which differ from the coupon
+    dates when a start date was rolled); ``use_index_dates=False`` projects
+    over the coupon periods instead.
+    """
+    lag = index.fixing_days if spot_lag is None else spot_lag
+    start, end = _dates(trade_date, tenor, index.calendar, lag, forward_start)
+    eom = index.end_of_month
+    fx_sch = Schedule(start, end, fixed_tenor, index.calendar, "MF", end_of_month=eom)
+    fl_sch = Schedule(
+        start, end, float_tenor or index.tenor, index.calendar, "MF", end_of_month=eom
+    )
+    fx = fixed_leg(fx_sch, notional, fixed_rate, fixed_day_count)
+    fl = ibor_leg(fl_sch, notional, index, spread=spread, use_index_dates=use_index_dates)
+    return Swap(fx, fl, payer, {"type": "IRS", "index": index.name, "tenor": tenor})

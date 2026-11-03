@@ -1,4 +1,4 @@
-"""Swaps: OIS."""
+"""Swaps: OIS and fixed versus IBOR."""
 
 from __future__ import annotations
 
@@ -7,7 +7,19 @@ import datetime as dt
 import pytest
 
 from spxa.market import InterpolatedDiscountCurve
-from spxa.rates import ESTR, SOFR, FixedCoupon, FixingHistory, OvernightCoupon, Swap, ois_swap
+from spxa.rates import (
+    ESTR,
+    EURIBOR3M,
+    EURIBOR6M,
+    SOFR,
+    FixedCoupon,
+    FixingHistory,
+    IborCoupon,
+    OvernightCoupon,
+    Swap,
+    ois_swap,
+    vanilla_swap,
+)
 
 D = dt.date
 REF = "2024-01-15"
@@ -93,3 +105,68 @@ class TestOISPricing:
             Swap([], sw.floating)
         with pytest.raises(ValueError, match="FixedCoupon"):
             Swap(sw.floating, sw.floating)
+
+
+PROJ = InterpolatedDiscountCurve(
+    [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0],
+    [0.985, 0.970, 0.944, 0.90, 0.785, 0.63, 0.28],
+    reference_date=REF,
+)
+
+
+class TestVanilla:
+    def test_eur_10y_dates(self) -> None:
+        sw = vanilla_swap(REF, "10Y", 0.03)
+        assert sw.start == D(2024, 1, 17)
+        assert len(sw.fixed) == 10 and len(sw.floating) == 20
+        fl = sw.floating
+        assert all(isinstance(c, IborCoupon) for c in fl)
+        assert fl[0].fixing == D(2024, 1, 15)  # type: ignore[union-attr]
+        assert all(c.day_count == "30/360" for c in sw.fixed)  # type: ignore[union-attr]
+        # 17 Jan 2026 and 2027 fall on weekends
+        assert [c.end for c in sw.fixed][1:4] == [D(2026, 1, 19), D(2027, 1, 18), D(2028, 1, 17)]  # type: ignore[union-attr]
+        # the fixed coupon over a rolled period still accrues 30/360 between adjusted dates
+        assert sw.fixed[1].accrual == pytest.approx(362 / 360, abs=1e-15)  # type: ignore[union-attr]
+
+    def test_single_curve_telescopes(self) -> None:
+        exact = vanilla_swap(REF, "10Y", 0.03, notional=1e6, use_index_dates=False)
+        s, e = exact.start, exact.fixed[-1].end  # type: ignore[union-attr]
+        par = 1e6 * (DISC.discount(s) - DISC.discount(e)) / exact.annuity(DISC)
+        assert exact.par_rate(DISC) == pytest.approx(par, rel=1e-12)
+        # with index dates, a period starting on a rolled date (Mon 19 Jan 2026)
+        # projects EURIBOR to 20 July rather than to the coupon end on 17 July
+        sw = vanilla_swap(REF, "10Y", 0.03, notional=1e6)
+        c = sw.floating[4]
+        assert isinstance(c, IborCoupon)
+        assert (c.start, c.end, EURIBOR6M.maturity_date(c.start)) == (
+            D(2026, 1, 19),
+            D(2026, 7, 17),
+            D(2026, 7, 20),
+        )
+        assert sw.par_rate(DISC) != exact.par_rate(DISC)
+        assert sw.par_rate(DISC) == pytest.approx(par, rel=1e-4)
+
+    def test_multi_curve(self) -> None:
+        sw = vanilla_swap(REF, "5Y", 0.03, notional=1e6)
+        num = 0.0
+        for c in sw.floating:
+            v0 = c.start  # type: ignore[union-attr]
+            v1 = EURIBOR6M.maturity_date(v0)
+            F = (PROJ.discount(v0) / PROJ.discount(v1) - 1) / EURIBOR6M.dc.year_fraction(v0, v1)
+            num += 1e6 * F * c.accrual * DISC.discount(c.payment_date)  # type: ignore[union-attr]
+        S = sw.par_rate(DISC, PROJ)
+        assert S == pytest.approx(num / sw.annuity(DISC), rel=1e-13)
+        assert S > sw.par_rate(DISC)  # the 6M curve sits above OIS
+        at_par = vanilla_swap(REF, "5Y", S, notional=1e6, payer=False)
+        assert at_par.pv(DISC, PROJ) == pytest.approx(0.0, abs=1e-8)
+        assert sw.pv(DISC, PROJ) == pytest.approx((S - 0.03) * sw.annuity(DISC), rel=1e-12)
+
+    def test_usd_style_and_forward_start(self) -> None:
+        sw = vanilla_swap(REF, "2Y", 0.04, EURIBOR3M, fixed_tenor="6M", forward_start="1Y")
+        assert sw.start == D(2025, 1, 17)
+        assert len(sw.fixed) == 4 and len(sw.floating) == 8
+        spread = sw.par_spread(DISC, PROJ)
+        with_spread = vanilla_swap(
+            REF, "2Y", 0.04, EURIBOR3M, fixed_tenor="6M", forward_start="1Y", spread=spread
+        )
+        assert with_spread.pv(DISC, PROJ) == pytest.approx(0.0, abs=1e-12)
