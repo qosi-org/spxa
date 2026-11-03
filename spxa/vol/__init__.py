@@ -28,6 +28,8 @@ Wings
     :func:`wing_asymptotics`, :class:`WingAsymptotics`,
     :func:`lee_moment_from_slope`, :func:`lee_slope_from_moment`,
     :func:`rogers_tehranchi_slope`.
+Interpolation in time
+    :class:`PriceInterpolatedSurface` (Gatheral–Jacquier price interpolation).
 Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
@@ -61,6 +63,7 @@ from spxa.vol.conventions import (
     total_variance_from_price,
 )
 from spxa.vol.density import ImpliedDistribution
+from spxa.vol.interpolation import PriceInterpolatedSurface
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
@@ -114,6 +117,8 @@ __all__ = [
     "risk_neutral_density",
     # implied distribution
     "ImpliedDistribution",
+    # interpolation
+    "PriceInterpolatedSurface",
     # wings
     "WingAsymptotics",
     "lee_moment_from_slope",
