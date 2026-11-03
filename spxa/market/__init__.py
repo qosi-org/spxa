@@ -22,6 +22,9 @@ Option formulas
 Implied volatility
     :func:`implied_black_volatility` and :func:`implied_normal_volatility`
     to machine precision (normalised Jäckel formulations, cancellation-free tails).
+Quotes
+    :class:`OptionQuote`, :class:`OptionChain` (mids, filters, OTM selection,
+    implied vols) and :class:`OptionSurfaceQuotes`.
 """
 
 from spxa.market.dates import (
@@ -70,6 +73,7 @@ from spxa.market.implied import (
     implied_normal_volatility,
     normalised_black_call,
 )
+from spxa.market.quotes import OptionChain, OptionQuote, OptionSurfaceQuotes
 from spxa.market.schedule import (
     AccrualPeriod,
     Schedule,
@@ -128,4 +132,8 @@ __all__ = [
     "implied_black_volatility",
     "implied_normal_volatility",
     "normalised_black_call",
+    # quotes
+    "OptionChain",
+    "OptionQuote",
+    "OptionSurfaceQuotes",
 ]
