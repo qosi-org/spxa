@@ -19,6 +19,9 @@ Curves and forwards
     repo and discrete (cash or proportional) dividends.
 Option formulas
     Black, Bachelier and shifted Black prices and Greeks; Black–Scholes on spot.
+Implied volatility
+    :func:`implied_black_volatility` to machine precision (normalised
+    Jäckel formulation, cancellation-free tails).
 """
 
 from spxa.market.dates import (
@@ -62,6 +65,7 @@ from spxa.market.curves import (
     rate_from_discount,
 )
 from spxa.market.daycount import DayCount, available_day_counts, day_count, year_fraction
+from spxa.market.implied import implied_black_volatility, normalised_black_call
 from spxa.market.schedule import (
     AccrualPeriod,
     Schedule,
@@ -116,4 +120,7 @@ __all__ = [
     "black_scholes_price",
     "shifted_black_greeks",
     "shifted_black_price",
+    # implied volatility
+    "implied_black_volatility",
+    "normalised_black_call",
 ]
