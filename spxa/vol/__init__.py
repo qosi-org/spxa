@@ -23,6 +23,10 @@ Calibration
 No-arbitrage diagnostics
     :func:`durrleman_g`, :func:`risk_neutral_density`,
     :func:`check_butterfly`, :func:`check_calendar`.
+Wings
+    :func:`wing_asymptotics`, :class:`WingAsymptotics`,
+    :func:`lee_moment_from_slope`, :func:`lee_slope_from_moment`,
+    :func:`rogers_tehranchi_slope`.
 Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
@@ -57,6 +61,13 @@ from spxa.vol.density import ImpliedDistribution
 from spxa.vol.essvi import ESSVI, ESSVISlice, anchored_theta, calibrate_essvi, essvi_calendar_free
 from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
 from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
+from spxa.vol.wings import (
+    WingAsymptotics,
+    lee_moment_from_slope,
+    lee_slope_from_moment,
+    rogers_tehranchi_slope,
+    wing_asymptotics,
+)
 
 __all__ = [
     # coordinates
@@ -98,4 +109,10 @@ __all__ = [
     "risk_neutral_density",
     # implied distribution
     "ImpliedDistribution",
+    # wings
+    "WingAsymptotics",
+    "lee_moment_from_slope",
+    "lee_slope_from_moment",
+    "rogers_tehranchi_slope",
+    "wing_asymptotics",
 ]
