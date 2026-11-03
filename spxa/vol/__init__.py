@@ -37,6 +37,10 @@ Surfaces
     total variances -> SVI/eSSVI/SSVI fit -> surface
     (:class:`SurfaceBuild`, :class:`ForwardTermStructure`,
     :func:`chain_total_variance`).
+Arbitrage repair
+    :func:`call_arbitrage_constraints` and :func:`repair_call_prices`:
+    minimal weighted l1 repair of a call grid by linear programming
+    (Cohen–Reisinger–Wang), with optional free moves inside the spread.
 Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
@@ -79,6 +83,12 @@ from spxa.vol.build import (
     SurfaceBuild,
     build_vol_surface,
     chain_total_variance,
+)
+from spxa.vol.repair import (
+    ArbitrageConstraints,
+    RepairResult,
+    call_arbitrage_constraints,
+    repair_call_prices,
 )
 from spxa.vol.surface import ForwardLike, TotalVarianceModel, VolSurface
 from spxa.vol.wings import (
@@ -147,4 +157,9 @@ __all__ = [
     "SurfaceBuild",
     "ForwardTermStructure",
     "chain_total_variance",
+    # arbitrage repair
+    "call_arbitrage_constraints",
+    "repair_call_prices",
+    "ArbitrageConstraints",
+    "RepairResult",
 ]
