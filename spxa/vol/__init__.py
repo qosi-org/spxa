@@ -111,7 +111,16 @@ Robust pricing
     :func:`robust_bounds`: forward-start bounds from a surface and the superhedge as trades.
 Multi-marginal MOT
     :func:`mot_multi`: bounds for claims on several dates.
+Variance swaps
+    :func:`variance_swap_strike`: fair variance and gamma swap strikes by replication.
 """
+
+from spxa.vol.variance_swaps import (
+    fair_variance,
+    gamma_swap_strike,
+    variance_swap_mtm,
+    variance_swap_strike,
+)
 
 from spxa.vol.mot_multi import mot_multi
 
@@ -457,4 +466,8 @@ __all__ = [
     "static_replication",
     "superhedge_pnl",
     "mot_multi",
+    "fair_variance",
+    "gamma_swap_strike",
+    "variance_swap_mtm",
+    "variance_swap_strike",
 ]
