@@ -47,3 +47,18 @@ def test_vix_squared_is_unbiased_and_futures_obey_jensen() -> None:
     assert RBergomiVIX(0.1, 1e-6, xi).futures(T, 1000, seed=0)[0] == pytest.approx(
         np.sqrt(exact), rel=1e-9
     )
+
+
+def test_vix_options_parity_skew_and_term_structure() -> None:
+    K = np.array([0.14, 0.16, 0.18, 0.2, 0.24, 0.3, 0.36])
+    calls, se, fut = M.options(T, K, seed=1)
+    puts, _, fut_p = M.options(T, K, "put", seed=1)
+    assert fut == fut_p
+    np.testing.assert_allclose(calls - puts, fut - K, atol=1e-12)
+    # the lognormal approximation is good: rough Bergomi VIX is close to lognormal
+    assert np.all(np.abs(calls - M.options_lognormal(T, K)) < 3 * se + 0.002 * calls)
+    iv = M.implied_vols(T, K, seed=1)
+    assert np.all(np.diff(iv) > 0)  # positive but nearly flat VIX skew
+    assert iv[-1] - iv[0] < 0.01
+    atm = [M.implied_vols(t, M.futures(t, seed=1)[0], seed=1)[0] for t in (0.05, 0.25, 1.0, 2.0)]
+    assert np.all(np.diff(atm) < 0) and atm[0] > 1.3 and atm[-1] < 0.55

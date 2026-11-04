@@ -31,6 +31,8 @@ from typing import Any, Callable, Optional, Union
 import numpy as np
 from scipy.special import hyp2f1
 
+from spxa.market import black_price, implied_black_volatility
+
 __all__ = ["RBergomiVIX", "VIX_WINDOW"]
 
 VIX_WINDOW = 30.0 / 365.0
@@ -125,3 +127,40 @@ class RBergomiVIX:
         r"""Lognormal approximation :math:`E[\mathrm{VIX}_T] \approx \sqrt{m_1}\,e^{-s^2/8}`."""
         m1, s2 = self.lognormal_moments(T)
         return math.sqrt(m1) * math.exp(-s2 / 8)
+
+    def options(
+        self,
+        T: float,
+        K: Any,
+        option: str = "call",
+        n_paths: int = 200_000,
+        seed: Optional[int] = None,
+    ) -> tuple[np.ndarray, np.ndarray, float]:
+        """Undiscounted VIX option prices at strikes ``K``, their standard errors, and the futures price.
+
+        Prices use the futures as a control variate (exact, since futures are priced on
+        the same sample), so put-call parity :math:`C - P = F - K` holds sample by sample.
+        """
+        vix = np.sqrt(self.vix_squared(T, n_paths, seed))
+        Ks = np.atleast_1d(np.asarray(K, float))
+        eta = 1.0 if option == "call" else -1.0
+        pay = np.maximum(eta * (vix[:, None] - Ks[None, :]), 0.0)
+        return pay.mean(0), pay.std(0, ddof=1) / math.sqrt(vix.size), float(vix.mean())
+
+    def implied_vols(
+        self, T: float, K: Any, n_paths: int = 200_000, seed: Optional[int] = None
+    ) -> np.ndarray:
+        """Black implied volatilities of VIX options on the futures (out-of-the-money side)."""
+        Ks = np.atleast_1d(np.asarray(K, float))
+        calls, _, fut = self.options(T, Ks, "call", n_paths, seed)
+        kinds = np.where(Ks >= fut, "call", "put")
+        otm = np.where(Ks >= fut, calls, calls - (fut - Ks))
+        return np.asarray(implied_black_volatility(otm, fut, Ks, T, 1.0, kinds), float)
+
+    def options_lognormal(self, T: float, K: Any, option: str = "call") -> np.ndarray:
+        r"""Black prices with the lognormal moments: futures :math:`\sqrt{m_1}e^{-s^2/8}` and total variance :math:`s^2/4`."""
+        m1, s2 = self.lognormal_moments(T)
+        fut = math.sqrt(m1) * math.exp(-s2 / 8)
+        return np.asarray(
+            black_price(fut, np.asarray(K, float), T, math.sqrt(s2 / 4 / T), 1.0, option), float
+        )
