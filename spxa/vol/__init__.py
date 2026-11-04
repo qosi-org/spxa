@@ -121,7 +121,15 @@ Model risk
 Risk adapter
     :func:`surface_price` (:class:`SurfaceQuote`) and :func:`surface_pricing_fn` value
     :mod:`spxa.risk` options on a surface for stress testing.
+Processes
+    :func:`process_vol_surface` (:class:`ProcessSurface`, also ``Process.to_vol_surface``) fits
+    SVI slices to the Lewis prices of an exponential-Lévy model.
 """
+
+from spxa.vol.process_surface import (
+    ProcessSurface,
+    process_vol_surface,
+)
 
 from spxa.vol.risk_adapter import (
     SurfaceQuote,
@@ -505,4 +513,6 @@ __all__ = [
     "SurfaceQuote",
     "surface_price",
     "surface_pricing_fn",
+    "ProcessSurface",
+    "process_vol_surface",
 ]

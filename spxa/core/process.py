@@ -402,6 +402,21 @@ class Process(ABC):
 
         return to_pde(self, **kwargs)
 
+    def to_vol_surface(self, spot: float, rate: float, expiries: Any, **kwargs: Any) -> Any:
+        r"""
+        Implied-volatility surface of the exponential-Lévy model on this process.
+
+        Delegates to :func:`spxa.vol.process_vol_surface`. The model is
+        :math:`S_T = S_0 e^{(r - q)T + X_T}`, where :math:`X` is this process
+        normalised to be a martingale in the exponent. The result is a
+        :class:`~spxa.vol.process_surface.ProcessSurface`, i.e. a
+        :class:`~spxa.vol.surface.VolSurface` together with the model implied
+        vols it was fitted to.
+        """
+        from spxa.vol.process_surface import process_vol_surface
+
+        return process_vol_surface(self, spot, rate, expiries, **kwargs)
+
     def __repr__(self) -> str:
         return f"{type(self).__name__}(exactness={self._exactness.name})"
 
