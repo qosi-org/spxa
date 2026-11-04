@@ -78,3 +78,16 @@ def test_rough_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "rough Bergomi VIX smile: 81.2 81.4 81.9" in out
     assert "Heston VIX smile:        94.8 86.4 76.0" in out
     assert "nan" not in out and "False" not in out
+
+
+def test_mot_example(capsys: pytest.CaptureFixture[str]) -> None:
+    out = _run("vol_mot_example.py", capsys)
+    for row in ("k=0.9: [11.4047, 14.5295]", "k=1.0: [3.5508, 7.8021]", "k=1.1: [0.0837, 4.0360]"):
+        assert row in out
+    assert "upper bound 0.147050; vanillas cost 0.147050" in out
+    assert "LP bounds [0.0507, 0.1389]" in out
+    assert "(gap 3.0e-03," in out and "(gap 2.0e-04," in out
+    assert "upper bound 0.0606, Heston price 0.0457" in out
+    assert "hedge P&L: mean 0.0150, worst -0.0009" in out
+    assert "  [0.0634, 0.0778]" in out
+    assert "nan" not in out
