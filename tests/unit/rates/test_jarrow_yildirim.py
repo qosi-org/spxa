@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 
 import numpy as np
@@ -13,7 +14,9 @@ from spxa.rates.jarrow_yildirim import (
     JarrowYildirim,
     calibrate_jarrow_yildirim,
 )
+from spxa.rates.inflation import bootstrap_inflation_curve
 from spxa.rates.jy_mc import jy_paths
+from tests.unit.rates.test_inflation_curve import HICP, QUOTES, SEASON
 
 NOMINAL, REAL = FlatCurve(0.03), FlatCurve(0.01)
 PARAMS = dict(
@@ -171,3 +174,16 @@ def test_calibration_recovers_volatilities() -> None:
     assert zc.parameters["sigma_i"] == pytest.approx(0.012, abs=1e-12)
     with pytest.raises(ValueError):
         calibrate_jarrow_yildirim(start, floors, ("kappa",))
+
+
+def test_monte_carlo_reprices_a_seasonal_real_curve() -> None:
+    today = dt.date(2025, 4, 1)
+    nominal = FlatCurve(0.03, reference_date=today)
+    curve = bootstrap_inflation_curve(HICP, today, QUOTES, SEASON)
+    real = curve.real_curve(nominal, today)  # monthly jumps in the real forwards
+    model = JarrowYildirim(nominal, real, curve.reference_cpi(today), **PARAMS)
+    paths = jy_paths(model, 5.0, 100, 50_000, record=(2.37,), seed=6)
+    for T in (2.37, 5.0):
+        c = paths.column(T)
+        v = paths.discount[:, c] * paths.index[:, c] / model.cpi0
+        assert abs(v.mean() - float(real.discount(T))) < 3 * v.std() / math.sqrt(v.size)

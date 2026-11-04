@@ -5,8 +5,10 @@ The two short rates are simulated as :math:`n_t = x^n_t + \varphi_n(t)` and
 Ornstein–Uhlenbeck processes, stepped exactly, with :math:`x^r` carrying the
 drift :math:`-\rho_{rI}\sigma_r\sigma_I` of the nominal measure. The
 deterministic shifts :math:`\varphi_x(t) = f_x(0,t) + \frac{\sigma_x^2}{2a_x^2}(1 - e^{-a_x t})^2`
-fit each curve. The integrals of :math:`n` and :math:`r` use the trapezoidal
-rule, and the log-index takes the matching drift and an exact Gaussian shock.
+fit each curve. Their integrals are taken exactly from the discount factors,
+so curves with jumps in the forwards (monthly seasonality in a real curve) are
+repriced. The integrals of the OU factors use the trapezoidal rule, and the
+log-index takes the matching drift and an exact Gaussian shock.
 All drivers are antithetic.
 """
 
@@ -40,6 +42,14 @@ class JYPaths:
         return k
 
 
+def _phi_integral(curve: object, a: float, sigma: float, t: np.ndarray) -> np.ndarray:
+    r""":math:`\int_0^t \varphi(s)\,ds = -\log P(0,t) + \frac{\sigma^2}{2a^2}\bigl(t - 2B(t) + B_{2a}(t)\bigr)`, exact
+    for any curve (piecewise-flat forwards included)."""
+    logp = np.log(np.array([float(curve.discount(float(s))) for s in t]))  # type: ignore[attr-defined]
+    b1, b2 = -np.expm1(-a * t) / a, -np.expm1(-2 * a * t) / (2 * a)
+    return -logp + 0.5 * (sigma / a) ** 2 * (t - 2 * b1 + b2)
+
+
 def _phi(curve: object, a: float, sigma: float, t: np.ndarray) -> np.ndarray:
     f = np.array([float(curve.instantaneous_forward(float(max(s, 1e-6)))) for s in t])  # type: ignore[attr-defined]
     return f + 0.5 * (sigma / a) ** 2 * (-np.expm1(-a * t)) ** 2
@@ -60,6 +70,8 @@ def jy_paths(
     keep = sorted({float(t) for t in record if 0 < t <= T} | {float(T)})
     an, ar, sn, sr, si = model.a_n, model.a_r, model.sigma_n, model.sigma_r, model.sigma_i
     phi_n, phi_r = _phi(model.nominal, an, sn, grid), _phi(model.real, ar, sr, grid)
+    det_n = np.diff(_phi_integral(model.nominal, an, sn, grid))
+    det_r = np.diff(_phi_integral(model.real, ar, sr, grid))
     lam, vec = np.linalg.eigh(model.correlation)
     L = vec * np.sqrt(np.maximum(lam, 0.0))
     rng = np.random.default_rng(seed)
@@ -82,9 +94,10 @@ def jy_paths(
             + drift_r * (-math.expm1(-ar * dt)) / ar
             + sr * math.sqrt(-math.expm1(-2 * ar * dt) / (2 * ar)) * z[1]
         )
-        n0, n1 = xn + phi_n[k - 1], xn_new + phi_n[k]
-        r0, r1 = xr + phi_r[k - 1], xr_new + phi_r[k]
-        step_n, step_r = 0.5 * (n0 + n1) * dt, 0.5 * (r0 + r1) * dt
+        n1, r1 = xn_new + phi_n[k], xr_new + phi_r[k]
+        # stochastic parts by the trapezoidal rule, curve parts exactly
+        step_n = 0.5 * (xn + xn_new) * dt + det_n[k - 1]
+        step_r = 0.5 * (xr + xr_new) * dt + det_r[k - 1]
         int_n += step_n
         logi += step_n - step_r - 0.5 * si * si * dt + si * math.sqrt(dt) * z[2]
         xn, xr = xn_new, xr_new
