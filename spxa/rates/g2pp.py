@@ -228,7 +228,24 @@ class G2PP:
             z, w = np.polynomial.hermite_e.hermegauss(int(n_quad))
             vals = np.array([conditional(mu[0] + sx * zi) for zi in z])
             return float(pT * np.dot(w, vals) / np.sqrt(2 * np.pi))
-        val = quad(integrand, -10, 10, epsabs=0.0, epsrel=1e-11, limit=400)[0]
+
+        # when y is nearly determined by x the conditional value has a kink where
+        # V(x, E[y | x]) = 0; split the integral there so quad does not straddle it
+        def mid(z: float) -> float:
+            x = mu[0] + sx * z
+            y = mu[1] + beta * (x - mu[0])
+            return const + float(np.dot(a_ * A * np.exp(-Ba * x), np.exp(-Bb * y)))
+
+        zs = np.linspace(-10.0, 10.0, 401)
+        hz = np.array([mid(z) for z in zs])
+        pts = [-10.0]
+        for k in np.flatnonzero(np.sign(hz[:-1]) * np.sign(hz[1:]) < 0):
+            pts.append(brentq(mid, zs[k], zs[k + 1], xtol=1e-14))
+        pts.append(10.0)
+        val = sum(
+            quad(integrand, lo, hi, epsabs=0.0, epsrel=1e-11, limit=400)[0]
+            for lo, hi in zip(pts[:-1], pts[1:])
+        )
         return float(pT * val)
 
     def swaption(self, swaption: Any, projection: Optional[YieldCurve] = None) -> float:

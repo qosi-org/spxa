@@ -131,6 +131,13 @@ class TestSwaptions:
         hw = HullWhite(CURVE, 0.5, 0.012)
         g = G2PP(CURVE, 0.5, 0.012, 0.05, 1e-9, 0.0)
         assert g.swaption(pay, PROJ) == pytest.approx(hw.swaption(pay, PROJ), rel=1e-8)
+        # receiver: amounts change sign more than once (basis on the float leg) and the
+        # conditional payoff is kinked in the limit; the split integral must still agree
+        rec10 = swaption("2024-03-15", "5Y", "10Y", 0.036, notional=1e4, payer=False)
+        g2 = G2PP(CURVE, 0.05, 0.01, 0.6, 1e-9, 0.0)
+        assert g2.swaption(rec10, PROJ) == pytest.approx(
+            HullWhite(CURVE, 0.05, 0.01).swaption(rec10, PROJ), rel=1e-10
+        )
 
     def test_correlation_moves_short_and_long_tenors_differently(self) -> None:
         # higher rho adds variance; negative rho cancels the fast factor in short rates
