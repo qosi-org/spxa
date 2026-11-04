@@ -87,7 +87,14 @@ SLV PDE
     :class:`SLVPDE`: backward SLV pricer on ADI for vanillas and knock-out barriers.
 SLV models
     :func:`calibrate_slv` and :class:`SLVModel`: mixing-fraction SLV calibrated to a local-vol surface.
+Rough Heston
+    :class:`RoughHeston`: fractional Riccati characteristic function.
 """
+
+from spxa.vol.rough_heston import (
+    RoughHeston,
+    fractional_riccati,
+)
 
 from spxa.vol.slv_model import SLVModel, as_local_vol, calibrate_slv
 
@@ -337,4 +344,6 @@ __all__ = [
     "SLVModel",
     "calibrate_slv",
     "as_local_vol",
+    "RoughHeston",
+    "fractional_riccati",
 ]
