@@ -6,6 +6,8 @@ import pytest
 
 from spxa.rates.bermudan import bermudan_from_times
 from spxa.rates.bermudan_engines import bermudan_pde, bermudan_tree
+from spxa.rates.cheyette import Cheyette
+from spxa.rates.cheyette_pde import CheyettePDE
 from spxa.rates.hull_white import HullWhite
 from spxa.rates.hw_pde import HullWhitePDE
 from spxa.rates.hw_tree import HullWhiteTree
@@ -40,3 +42,15 @@ def test_tree_agrees_with_pde(payer: bool) -> None:
         bermudan_tree(HullWhiteTree(HW, 4.0, 400), ber)
     with pytest.raises(TypeError):
         bermudan_pde(object(), ber)
+
+
+def test_cheyette_pde_bermudan() -> None:
+    ber = _ber()
+    hw_value = bermudan_pde(PDE, ber)
+    flat = CheyettePDE(Cheyette(DISC, 0.05, 0.01, beta=0.0), 161, 41, 200)
+    assert bermudan_pde(flat, ber) == pytest.approx(hw_value, rel=1e-3)
+    eu = swaption(REF, "1Y", "5Y", 0.035, notional=1e4)
+    assert bermudan_pde(flat, ber.restrict([0])) == pytest.approx(HW.swaption(eu, PROJ), rel=2e-3)
+    skewed = CheyettePDE(Cheyette(DISC, 0.05, 0.01, beta=0.3), 161, 41, 200)
+    europeans = [bermudan_pde(skewed, ber.restrict([k])) for k in range(ber.n_exercise)]
+    assert max(europeans) < bermudan_pde(skewed, ber) < sum(europeans)

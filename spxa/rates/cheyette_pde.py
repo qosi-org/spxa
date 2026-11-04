@@ -59,16 +59,19 @@ class CheyettePDE:
     ) -> float:
         """Value at :math:`(0, 0, 0)` of ``payoff(x, y)`` paid at ``T``.
 
-        ``exercise`` maps times in :math:`(0, T)` to exercise values ``g(x, y)``.
+        ``exercise`` maps times in :math:`(0, T)` to exercise values ``g(x, y)``;
+        they are added to the time grid.
         """
         m = self.model
         x, y = self._grids(T)
         X, Y = np.meshgrid(x, y, indexing="ij")  # (n_x, n_y)
         V = np.asarray(payoff(X, Y), float)
-        n = self.n_time
-        times = np.linspace(0.0, T, n + 1)
-        ex = dict(exercise or {})
-        ex_steps = {int(round(t / T * n)): g for t, g in ex.items()}
+        ex = {float(t): g for t, g in (exercise or {}).items() if 0.0 < t < T}
+        # exercise dates are inserted into the uniform grid so they are hit exactly
+        times = np.unique(np.r_[np.linspace(0.0, T, self.n_time + 1), list(ex)])
+        times = times[np.r_[True, np.diff(times) > 1e-10 * T]]
+        n = times.size - 1
+        ex_steps = {int(np.argmin(np.abs(times - t))): g for t, g in ex.items()}
         for k in range(n, 0, -1):
             t0, t1 = times[k - 1], times[k]
             h = t1 - t0

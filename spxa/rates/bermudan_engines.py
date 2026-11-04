@@ -12,6 +12,9 @@ form at the lattice nodes.
 
 * :func:`bermudan_pde` uses :class:`~spxa.rates.hw_pde.HullWhitePDE`, where
   the exercise dates are events of the time grid, so they are hit exactly.
+* :func:`bermudan_pde` also accepts a
+  :class:`~spxa.rates.cheyette_pde.CheyettePDE`; the exercise values are then
+  functions of both states, :math:`P(t_k, t_i \mid x, y)`.
 * :func:`bermudan_tree` uses a Hull–White trinomial tree, mapping node short
   rates to the model state through :math:`x = r - \varphi(t)`. Exercise
   dates must lie on the tree's uniform grid (see :func:`bermudan_from_times`).
@@ -24,6 +27,7 @@ from typing import Any
 import numpy as np
 
 from spxa.rates.bermudan import BermudanSwaption
+from spxa.rates.cheyette_pde import CheyettePDE
 from spxa.rates.hw_pde import HullWhitePDE
 from spxa.rates.hw_tree import HullWhiteTree
 
@@ -41,6 +45,21 @@ def bermudan_pde(engine: Any, bermudan: BermudanSwaption) -> float:
 
         exercise = {float(t[k]): g(k) for k in range(t.size - 1)}
         return engine.value(g(t.size - 1), float(t[-1]), exercise=exercise)
+    if isinstance(engine, CheyettePDE):
+        c = engine.model
+
+        def h(k: int) -> Any:
+            cf, tk = bermudan.underlyings[k], float(t[k])
+
+            def g(X: np.ndarray, Y: np.ndarray) -> np.ndarray:
+                v = sum(a * c.discount_bond(tk, ti, X, Y) for ti, a in zip(cf.times, cf.amounts))
+                return np.maximum(np.asarray(v, float), 0.0)
+
+            return g
+
+        return engine.solve(
+            h(t.size - 1), float(t[-1]), exercise={float(t[k]): h(k) for k in range(t.size - 1)}
+        )
     raise TypeError(f"no Bermudan PDE for {type(engine).__name__}")
 
 
