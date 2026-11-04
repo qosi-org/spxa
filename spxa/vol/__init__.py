@@ -85,7 +85,14 @@ SLV particles
     :func:`calibrate_leverage_particles`: Guyon–Henry-Labordère particle calibration with kernel regression.
 SLV PDE
     :class:`SLVPDE`: backward SLV pricer on ADI for vanillas and knock-out barriers.
+SLV models
+    :func:`calibrate_slv` and :class:`SLVModel`: mixing-fraction SLV calibrated to a local-vol surface.
 """
+
+from spxa.vol.slv_model import (
+    SLVModel,
+    calibrate_slv,
+)
 
 from spxa.vol.slv_pde import SLVPDE
 
@@ -330,4 +337,6 @@ __all__ = [
     "calibrate_leverage_particles",
     "kernel_conditional_mean",
     "SLVPDE",
+    "SLVModel",
+    "calibrate_slv",
 ]
