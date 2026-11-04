@@ -355,6 +355,9 @@ class TestVolatilityProducts:
             "$0.35902$",
             "$0.36024$",
             "$8.74\\%$",
+            "$10.2$ bp",
+            "$10.8$ bp",
+            "$10^{-8}$",
         ):
             assert s in text, s
 
@@ -382,3 +385,22 @@ class TestVolatilityProducts:
         d = r.ArbitrageFreeSABR(m, 0.01, 10.0).solve()
         assert round(d.P_L, 4) == 0.0874
         assert d.mass() == pytest.approx(1.0, abs=1e-12)
+
+    def test_cms_closed_form_and_numbers(self) -> None:
+        import warnings
+
+        from spxa.market.black import black_price
+
+        S0, T, s, A0, P = 0.03, 5.0, 0.2, 4.3, 0.85
+
+        def price(K: float, o: str) -> float:
+            return float(black_price(S0, max(K, 1e-12), T, s, 1.0, o))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            lin = r.CMSReplication(S0, T, A0, P, price, n=10, mapping="linear")
+            std = r.CMSReplication(S0, T, A0, P, price, n=10)
+            closed = lin.slope * A0 / P * S0**2 * math.expm1(s * s * T)
+            assert lin.convexity_adjustment() == pytest.approx(closed, rel=1e-8)
+            assert round(lin.convexity_adjustment() * 1e4, 1) == 10.2
+            assert round(std.convexity_adjustment() * 1e4, 1) == 10.8

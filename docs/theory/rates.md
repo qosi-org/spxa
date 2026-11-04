@@ -23,6 +23,7 @@
 | Caps, floors and swaptions | `CapFloor`, `Caplet`, `cap_floor`, `Swaption`, `swaption`, `cash_annuity` |
 | SABR | `SABR`, `sabr_lognormal_vol`, `sabr_normal_vol`, `alpha_from_atm`, `calibrate_sabr`, `SABRFit` |
 | Arbitrage-free SABR | `ArbitrageFreeSABR`, `SABRDensity`, `sabr_paths`, `SABRPaths` |
+| Stripping, cube and CMS | `strip_caplet_vols`, `CapletVolCurve`, `SwaptionCube`, `CMSReplication` |
 
 ---
 
@@ -297,3 +298,26 @@ $$
 Mass and the forward are conserved to rounding error. For $\alpha = 0.02$, $\beta = 0.5$, $\rho = -0.3$, $\nu = 0.5$, $F = 1\%$ and $T = 10$, Hagan's prices have a negative density near zero, while the PDE puts $8.74\%$ of the mass at zero. With $\beta = 0$ and $\nu = 0$ the model is Brownian motion absorbed at zero, and the PDE converges to the reflection-principle prices at second order.
 
 `sabr_paths` simulates the model itself, with absorption at zero. With $\beta = 0$ it adds a Brownian-bridge crossing test, which removes the $O(\sqrt{\Delta t})$ bias of checking only at the grid times. The PDE is an expansion of the true dynamics, so at long expiries its prices differ from Monte Carlo by more than sampling error.
+
+### 8.4 Caplet stripping and the swaption cube
+
+Cap markets quote one flat vol per maturity. `strip_caplet_vols` turns these into caplet vols by bootstrapping. It sorts the caps by maturity and gives the caplets that each longer cap adds one common vol, chosen so that the cap reprices; earlier caplets keep the vols already stripped. The result is a piecewise-constant `CapletVolCurve` in expiry, usable directly as $\sigma(T, K)$ in `CapFloor.price`. If flat vols fall faster than the bootstrap can absorb, the required caplet variance becomes negative and the function raises.
+
+`SwaptionCube` holds one SABR smile per (expiry, tenor) node, with a common $\beta$. Between nodes it interpolates $\log\alpha$, $\rho$ and $\log\nu$ bilinearly, which keeps $\alpha, \nu > 0$ and $|\rho| < 1$. Beyond the matrix the parameters are held flat.
+
+### 8.5 CMS
+
+A coupon paying the swap rate $S_T$ at $T_p$ is worth $A_0\,E^A[S_T\,\alpha(S_T)]$, where the annuity mapping $\alpha(S) \approx P(T, T_p)/A(T)$ comes from a terminal swap-rate model. `CMSReplication` evaluates such expectations by Carr–Madan replication with swaption prices:
+
+$$
+E^A[f(S_T)] = f(S_0) + \int_{-\infty}^{S_0} f''(K)\,P(K)\,dK + \int_{S_0}^{\infty} f''(K)\,C(K)\,dK.
+$$
+
+The standard mapping (Hagan, 2003) is $\alpha \propto G(S) = S(1 + S/m)^{-\delta}/(1 - (1 + S/m)^{-n})$. The linear mapping is $\alpha(S) = P(T_p)/A_0 + a(S - S_0)$. With the linear mapping and a lognormal swap rate, the convexity adjustment has the closed form
+
+$$
+E^{T_p}[S_T] - S_0 = \frac{a A_0}{P(T_p)}\,S_0^2\,\bigl(e^{\sigma^2 T} - 1\bigr),
+$$
+
+which the replication reproduces to $10^{-8}$ relative. With the slope $a$ taken from the standard mapping, the adjustment for a 5-year fixing of a 10-year annual swap rate at $S_0 = 3\%$ and $\sigma = 20\%$ is $10.2$ bp. The standard mapping itself gives $10.8$ bp, and a SABR smile with fatter wings raises it further.
+
