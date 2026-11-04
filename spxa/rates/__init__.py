@@ -75,7 +75,11 @@ Caps and floors
     :class:`Caplet`, :class:`CapFloor`, :func:`cap_floor` (Black, Bachelier or shifted Black; flat implied vol).
 Swaptions
     :class:`Swaption` (physical or cash settled), :func:`swaption`, :func:`cash_annuity`.
+SABR
+    :class:`SABR`, :func:`sabr_lognormal_vol`, :func:`sabr_normal_vol` (Hagan 2002, optional shift).
 """
+
+from spxa.rates.sabr import SABR, sabr_lognormal_vol, sabr_normal_vol, z_over_chi
 
 from spxa.rates.swaptions import Swaption, cash_annuity, swaption
 
@@ -350,4 +354,8 @@ __all__ = [
     "Swaption",
     "cash_annuity",
     "swaption",
+    "SABR",
+    "sabr_lognormal_vol",
+    "sabr_normal_vol",
+    "z_over_chi",
 ]
