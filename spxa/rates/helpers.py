@@ -27,6 +27,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 
 from spxa.market.curves import YieldCurve
 from spxa.rates.cashflows import Cashflow, IborCoupon, OvernightCoupon
+from spxa.rates.bonds import FixedRateBond
 from spxa.rates.futures import OvernightFuture, RateFuture
 from spxa.rates.indices import OvernightIndex
 from spxa.rates.instruments import FRA, Deposit
@@ -41,6 +42,7 @@ __all__ = [
     "BasisSwapHelper",
     "last_curve_date",
     "quarterly_futures",
+    "BondHelper",
 ]
 
 Curves = Mapping[str, YieldCurve]
@@ -162,6 +164,43 @@ class FutureHelper(CurveHelper):
 
     def implied_quote(self, curves: Curves) -> float:
         return self.future.implied_price(self._get(curves, self.curve), self.a, self.sigma)
+
+
+@dataclass
+class BondHelper(CurveHelper):
+    """Fixed-rate bond quoted by clean price (default) or by yield, settling on ``settle``.
+
+    The model clean price is the forward dirty price at settlement on the
+    curve, :math:`\\sum C_i P(t_i)/P(t_s)`, minus accrued interest. The
+    model yield is the bond yield of that clean price.
+    """
+
+    bond: FixedRateBond
+    quote: float
+    settle: _dt.date
+    curve: str = "discount"
+    quote_type: str = "clean"
+
+    def __post_init__(self) -> None:
+        if self.quote_type not in ("clean", "yield"):
+            raise ValueError("quote_type must be 'clean' or 'yield'")
+
+    @property
+    def pillar(self) -> _dt.date:
+        return self.bond.cashflows()[-1].payment_date
+
+    @property
+    def curves(self) -> tuple[str, ...]:
+        return (self.curve,)
+
+    def implied_quote(self, curves: Curves) -> float:
+        c = self._get(curves, self.curve)
+        clean = self.bond.dirty_price_from_curve(c, self.settle) - self.bond.accrued_interest(
+            self.settle
+        )
+        if self.quote_type == "clean":
+            return clean
+        return self.bond.yield_from_clean(clean, self.settle)
 
 
 def quarterly_futures(

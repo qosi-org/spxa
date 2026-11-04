@@ -38,7 +38,8 @@ Calibration helpers
     :class:`DepositHelper`, :class:`FRAHelper`, :class:`FutureHelper`,
     :class:`SwapHelper`, :class:`BasisSwapHelper` (quote, pillar, curve
     names and model quote on a mapping of named curves);
-    :func:`quarterly_futures` builds a consecutive IMM futures strip.
+    :func:`quarterly_futures` builds a consecutive IMM futures strip;
+    :class:`BondHelper` quotes a fixed-rate bond by clean price or yield.
 Bootstrapping
     :func:`bootstrap_curve` (:class:`BootstrapResult`): pillar-by-pillar
     Brent solves, exact in one pass for local schemes and iterated for
@@ -117,6 +118,7 @@ from spxa.rates.helpers import (
     SwapHelper,
     last_curve_date,
     quarterly_futures,
+    BondHelper,
 )
 from spxa.rates.interpolation import (
     CubicSplineRT,
@@ -248,6 +250,7 @@ __all__ = [
     "BasisSwapHelper",
     "last_curve_date",
     "quarterly_futures",
+    "BondHelper",
     # bootstrapping
     "bootstrap_curve",
     "BootstrapResult",
