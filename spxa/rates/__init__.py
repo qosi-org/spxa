@@ -106,7 +106,11 @@ G2++ simulation
     :func:`g2pp_paths`: exact simulation of G2++ factors and bank account.
 G2++ calibration
     :func:`calibrate_g2pp`: least-squares G2++ calibration to swaptions and caps.
+Hull-White two-factor
+    :class:`HullWhite2F`: Hull-White two-factor parameters and the bijection with G2++.
 """
+
+from spxa.rates.hw2f import HullWhite2F
 
 from spxa.rates.g2pp_calibration import G2PPCalibration, calibrate_g2pp
 
@@ -455,4 +459,5 @@ __all__ = [
     "g2pp_paths",
     "G2PPCalibration",
     "calibrate_g2pp",
+    "HullWhite2F",
 ]
