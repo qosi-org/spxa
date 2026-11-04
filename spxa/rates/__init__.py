@@ -112,7 +112,11 @@ Black-Karasinski
     :class:`BlackKarasinski`: lognormal short rate on a curve-fitted trinomial tree.
 Black-Karasinski Monte Carlo
     :func:`black_karasinski_paths`: exact OU simulation on the tree-fitted drift.
+CIR++
+    :class:`CIRPlusPlus`: shifted CIR fitted to a curve, with bond options and caps in closed form.
 """
+
+from spxa.rates.cir_pp import CIRPlusPlus
 
 from spxa.rates.bk_mc import BlackKarasinskiPaths, black_karasinski_paths
 
@@ -472,4 +476,5 @@ __all__ = [
     "BlackKarasinskiTree",
     "BlackKarasinskiPaths",
     "black_karasinski_paths",
+    "CIRPlusPlus",
 ]
