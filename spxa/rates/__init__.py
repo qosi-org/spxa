@@ -102,7 +102,11 @@ Hull-White calibration
     :func:`calibrate_hull_white`: bootstrap or global calibration of Hull-White to swaptions and caps.
 G2++
     :class:`G2PP`: two-factor Gaussian G2++ model fitted to a discount curve.
+G2++ simulation
+    :func:`g2pp_paths`: exact simulation of G2++ factors and bank account.
 """
+
+from spxa.rates.g2pp_mc import G2PPPaths, g2pp_paths
 
 from spxa.rates.g2pp import G2PP
 
@@ -443,4 +447,6 @@ __all__ = [
     "market_prices",
     "model_price",
     "G2PP",
+    "G2PPPaths",
+    "g2pp_paths",
 ]
