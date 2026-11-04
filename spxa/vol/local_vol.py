@@ -66,10 +66,19 @@ class LocalVolSurface:
         Steps of the moneyness and (relative) time differences.
     """
 
-    def __init__(self, surface: Any, dk: float = 1e-3, dt_rel: float = 1e-3) -> None:
+    def __init__(
+        self,
+        surface: Any,
+        dk: float = 1e-3,
+        dt_rel: float = 1e-3,
+        y_range: tuple[float, float] = (-4.0, 4.0),
+        t_min: float = 1e-4,
+    ) -> None:
         self.surface = surface
         self.dk = float(dk)
         self.dt_rel = float(dt_rel)
+        self.y_range = (float(y_range[0]), float(y_range[1]))
+        self.t_min = float(t_min)
 
     def terms(self, y: Any, T: float) -> dict[str, np.ndarray]:
         """``w``, ``w_y``, ``w_yy``, ``w_T`` and the denominator ``g`` at moneyness ``y``."""
@@ -99,5 +108,28 @@ class LocalVolSurface:
         return self.local_vol_k(y, T)
 
     def __call__(self, S: Any, t: float) -> Any:
-        """``sigma(S, t)`` for the PDE solvers of :mod:`spxa.pde` (spot level, calendar time)."""
-        return self.local_vol(S, max(float(t), 1e-8))
+        """``sigma(S, t)`` for the solvers of :mod:`spxa.pde` (spot level, calendar time).
+
+        Grids reach far beyond the quoted range, so the moneyness is clipped
+        to ``y_range`` (flat extrapolation of the local volatility) and the
+        time to at least ``t_min``. At :math:`S = 0` the volatility is that
+        at the lower clip.
+        """
+        T = max(float(t), self.t_min)
+        F = float(self.surface.forward(T))
+        SS = np.asarray(S, float)
+        with np.errstate(divide="ignore"):
+            y = np.log(np.maximum(SS, 0.0) / F)
+        return self.local_vol_k(np.clip(y, *self.y_range), T)
+
+    def dupire_pde(self, r: float, q: float = 0.0) -> Any:
+        """:class:`spxa.pde.DupirePDE` driven by this local volatility (constant ``r``, ``q``)."""
+        from spxa.pde import DupirePDE
+
+        return DupirePDE(r, self, q)
+
+    def black_scholes_pde(self, r: float, q: float = 0.0) -> Any:
+        """:class:`spxa.pde.BlackScholesPDE` with this local volatility (backward pricing)."""
+        from spxa.pde import BlackScholesPDE
+
+        return BlackScholesPDE(r, self, q)
