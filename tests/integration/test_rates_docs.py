@@ -12,6 +12,9 @@ import pytest
 
 import spxa.rates as r
 from spxa.market import FlatCurve, InterpolatedDiscountCurve, Schedule
+from tests.unit.rates.test_inflation_bonds import NOMINAL as INFL_NOMINAL
+from tests.unit.rates.test_inflation_bonds import TODAY as INFL_TODAY
+from tests.unit.rates.test_inflation_bonds import _setup as inflation_setup
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "theory" / "rates.md"
 D = dt.date
@@ -616,3 +619,60 @@ class TestBermudans:
         poor = r.LSMResult(float(v.mean()), float(v.std(ddof=1) / np.sqrt(v.size)), naive, 0.0)
         assert round(poor.price, 2) == 194.22
         assert round(r.andersen_broadie(poor, 1000, 500, seed=5).upper, 2) == 227.19
+
+
+class TestInflation:
+    def test_reference_cpi_and_tips(self) -> None:
+        fx = r.CPIFixings.from_pairs("CPI-U", [("2022-10-01", 298.012), ("2022-11-01", 297.711)])
+        assert r.InflationIndex("CPI-U", fx, digits=5).reference_cpi("2023-01-15") == 297.87606
+        old = r.CPIFixings.from_pairs("CPI-U", [("1998-10-01", 164.0), ("1998-11-01", 164.0)])
+        bond = r.InflationLinkedBond(
+            0.03875, D(2009, 1, 15), D(1999, 1, 15), r.InflationIndex("CPI-U", old, digits=5)
+        )
+        assert bond.settlement_amount("1999-01-15", 0.03898) == 99.811030
+        text = DOC.read_text(encoding="utf-8")
+        for claim in (
+            "$297.87606$",
+            "$99.811030$",
+            "2.98 bp",
+            "$0.455$",
+            "$3.204$",
+            "$\\sigma_r = 0.12\\%$",
+        ):
+            assert claim in text
+
+    def test_jarrow_yildirim_numbers(self) -> None:
+        m = r.JarrowYildirim(
+            FlatCurve(0.03), FlatCurve(0.01), 100.0, 0.1, 0.01, 0.05, 0.008, 0.012, 0.6, 0.2, -0.3
+        )
+        flat = r.JarrowYildirim(
+            FlatCurve(0.03), FlatCurve(0.01), 100.0, 0.1, 0.01, 0.05, 0.0, 0.012, 0.6, 0.2, -0.3
+        )
+        years = np.arange(1.0, 11.0)
+        assert round((m.yoy_swap_rate(years) - flat.yoy_swap_rate(years)) * 1e4, 2) == -2.98
+        quotes = [
+            r.InflationOptionQuote(t - 1, t, k, m.yoy_caplet(t - 1, t, k))
+            for t in (1, 2, 3, 5, 7, 10)
+            for k in (0.01, 0.03)
+        ]
+        quotes += [
+            r.InflationOptionQuote(0, t, 0.0, m.zero_coupon_caplet(t, 0.0, "put"), "put", "zc")
+            for t in (5, 10)
+        ]
+        start = r.JarrowYildirim(
+            FlatCurve(0.03), FlatCurve(0.01), 100.0, 0.1, 0.01, 0.05, 0.003, 0.02, 0.6, 0.2, -0.3
+        )
+        stuck = r.calibrate_jarrow_yildirim(start, quotes, starts=(1.0,))
+        assert round(stuck.parameters["sigma_r"], 4) == 0.0012
+        assert r.calibrate_jarrow_yildirim(start, quotes).parameters["sigma_r"] == pytest.approx(
+            0.008, abs=1e-12
+        )
+
+    def test_deflation_floor_numbers(self) -> None:
+        floors = []
+        for zc in (0.02, 0.0025):
+            bond, curve, model = inflation_setup(zc)
+            floors.append(
+                round(bond.present_value(INFL_NOMINAL, curve, INFL_TODAY, model)["floor"], 3)
+            )
+        assert floors == [0.455, 3.204]

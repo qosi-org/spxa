@@ -34,6 +34,9 @@
 | Forward market model and SABR-LMM | `ForwardMarketModel`, `fmm_paths`, `FMMPaths`, `SABRLMM`, `sabr_lmm_paths` |
 | Bermudan swaptions | `BermudanSwaption`, `bermudan_swaption`, `bermudan_from_times`, `coterminal_swaptions`, `bermudan_pde`, `bermudan_tree` |
 | Exercise by simulation | `lsm`, `ExerciseProblem`, `LSMPolicy`, `LSMResult`, `andersen_broadie`, `DualBound`, `hull_white_exercise_problem`, `cheyette_exercise_problem`, `hull_white_transition` |
+| Inflation indices and curves | `CPIFixings`, `InflationIndex`, `InflationCurve`, `Seasonality`, `bootstrap_inflation_curve` |
+| Inflation products | `ZeroCouponInflationSwap`, `YearOnYearInflationSwap`, `InflationLinkedBond` |
+| Jarrow–Yildirim | `JarrowYildirim`, `jy_paths`, `JYPaths`, `calibrate_jarrow_yildirim`, `InflationOptionQuote`, `JYFit` |
 
 ---
 
@@ -460,3 +463,34 @@ A Bermudan swaption can be exercised on any of the dates $t_1 < \dots < t_m$. Ex
 `lsm` implements Longstaff and Schwartz. Regressions of the realised discounted value on basis functions of the state, over in-the-money paths, give a continuation estimate and hence an exercise policy. The policy is then valued on independent paths, which makes the result an unbiased **lower bound**. `ExerciseProblem` only needs a transition function, so the code is shared between models. `hull_white_exercise_problem` uses the exact step `hull_white_transition`, and `cheyette_exercise_problem` uses the frozen-volatility step of `cheyette_paths`.
 
 The dual of Rogers and of Haugh and Kogan bounds the value from above by $E[\max_k(D(t_k)g_k - M_{t_k})]$ for any martingale with $M_0 = 0$. `andersen_broadie` builds $M$ from the LSM policy itself, with continuation values from nested simulation. The martingale only jumps where the policy exercises, and the width of the gap shows how far the policy is from optimal. For the swaption above, 200,000 paths give a lower bound of $225.07 \pm 0.53$. With 1,000 outer and 500 inner paths, the upper bound is $225.16$, a gap of $0.09$. The PDE value of $224.98$ lies within the Monte Carlo error of both bounds. A naive policy that exercises as soon as it is in the money is worth only $194.22$. Its dual bound is $227.19$, which is still valid but much wider.
+
+## 13. Inflation
+
+### 13.1 Indices and reference CPI
+
+Price indices are published monthly and used with a lag of $L$ months. US TIPS, Canadian real return bonds and euro-area linkers interpolate daily between lagged months:
+
+$$
+\mathrm{RefCPI}(d) = \mathrm{CPI}_{m-L} + \frac{t-1}{D}\bigl(\mathrm{CPI}_{m-L+1} - \mathrm{CPI}_{m-L}\bigr),
+$$
+
+for day $t$ of a month with $D$ days. `InflationIndex` implements this, with optional rounding to five places. On 15 January 2023, the October and November 2022 CPI-U levels $298.012$ and $297.711$ give TreasuryDirect's $297.87606$. Zero-coupon swaps on HICP and RPI use the lagged month without interpolation.
+
+### 13.2 The inflation curve
+
+A zero-coupon inflation swap pays $I(M)/I(S) - 1$ against $(1+K)^n - 1$. Its fair rate depends only on the forward index, so each quote fixes one forward fixing, $I(S)(1+K)^n$, $n$ years after the base month. `bootstrap_inflation_curve` stores these with $\log I$ linear in months between pillars. A `Seasonality` multiplies intra-year months by monthly factors that are demeaned to net to zero over a year, so the pillars stay exact. `Seasonality.estimate` recovers the factors from fixing history. The real discount curve is the value of index-linked money, $P_r(0,T) = P_n(0,T)\hat I(T)/I(0)$, and `real_curve` returns it.
+
+### 13.3 Jarrow–Yildirim
+
+Under the nominal measure, the nominal and real short rates are Hull–White, and the index is lognormal with drift $n_t - r_t$. The real rate's drift carries $-\rho_{rI}\sigma_r\sigma_I$, the change of numeraire from real to nominal money. A year-on-year swaplet is worth $P_n(0,T_1)E^{T_1}[P_r(T_1,T_2)] - P_n(0,T_2)$. Moving $r_{T_1}$ from the real to the nominal forward measure shifts its mean and gives the convexity factor $e^{C(T_1,T_2)}$:
+
+$$
+C = B_r(T_1,T_2)\Bigl[\rho_{rI}\sigma_r\sigma_I B_r(0,T_1) + \rho_{nr}\sigma_n\sigma_r\int_0^{T_1}e^{-a_r u}B_n(0,u)\,du - \tfrac12\sigma_r^2B_r(0,T_1)^2\Bigr].
+$$
+
+This agrees with Mercurio (2005) to $10^{-15}$. Take $a_n = 0.1$, $\sigma_n = 1\%$, $a_r = 0.05$, $\sigma_r = 0.8\%$, $\sigma_I = 1.2\%$ and $(\rho_{nr}, \rho_{nI}, \rho_{rI}) = (0.6, 0.2, -0.3)$, on flat 3% nominal and 1% real curves. The ten-year year-on-year rate is then 2.98 bp below the zero-coupon rate. `jy_paths` reprices both bond curves and the 9y–10y swaplet within Monte Carlo error, and sits more than eight standard errors from the swaplet without convexity. The log of an index ratio is Gaussian, so year-on-year caplets and zero-coupon caps and floors are Black formulas on the convexity-adjusted forwards. `calibrate_jarrow_yildirim` fits the volatilities to them. The real-rate volatility enters through the correlations, and the fit has local minima in it. A single start stalls at $\sigma_r = 0.12\%$, while the default grid of starts recovers $0.8\%$ to $10^{-12}$.
+
+### 13.4 Linked bonds and swaps
+
+`InflationLinkedBond` follows Treasury's conventions. Prices are quoted in real terms at a semiannual real yield, with simple interest over the current period, and the settlement amount is the price plus accrued interest, times the index ratio. Treasury's example, the 3.875% TIPS of January 2009 at a 3.898% real yield, prices at $99.811030$. On curves, each cash flow is worth $P_n(0,t)\hat I(t)/I_{\text{base}}$ times its real amount. The principal floor at par is a zero-coupon inflation put struck at the base CPI. For a new ten-year 0.125% bond with the model above, the floor is worth $0.455$ per 100 when expected inflation is 2% and $3.204$ when it is 0.25%. `ZeroCouponInflationSwap` and `YearOnYearInflationSwap` price the dated swaps. The latter applies the model's convexity on each period after the first.
+
