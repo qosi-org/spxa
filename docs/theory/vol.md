@@ -16,6 +16,8 @@
 | Delta conventions | `black_delta`, `strike_from_delta`, `atm_dns_strike` |
 | Risk and persistence | `parallel_bump`, `skew_bump`, `expiry_buckets`, `bucketed_vega`, `dumps`, `loads` |
 | Local volatility | `dupire_local_variance`, `LocalVolSurface`, `LocalVolGrid`, `bbf_implied_vol` |
+| Andreasen–Huge | `AndreasenHugeSurface`, `calibrate_andreasen_huge`, `AndreasenHugeFit`, `andreasen_huge_grid`, `piecewise_constant_vol` |
+| Local-vol simulation | `local_vol_paths`, `LocalVolPaths` |
 
 ---
 
@@ -229,3 +231,21 @@ $$
 $$
 
 `bbf_implied_vol` evaluates this integral. For $\sigma_{\mathrm{loc}} = a + by$ it gives $bk/\log(1 + bk/a)$. Differentiating at $k = 0$ gives the familiar rule that the short-dated local skew is twice the implied skew: for a time-independent smile $\sigma(k) = 0.2 - 0.1k$, the ATM local skew tends to $-0.2$.
+
+### 8.2 Pricing under local volatility
+
+A `LocalVolSurface` is a volatility function $\sigma(S, t)$ for the solvers of [PDE methods](pde.md). `dupire_pde` solves the forward Dupire equation for all strikes and expiries at once, and must give back the surface it came from. `black_scholes_pde`, `american` and `barrier` price backwards, one contract at a time. Two checks tie the two directions together: the forward and backward vanilla prices converge to the surface, and down-and-out plus down-and-in equals the vanilla. With $q = 0$ an American call under local vol is worth its European value, as it is under any diffusion.
+
+### 8.3 Andreasen–Huge interpolation
+
+Dupire's formula needs a smooth, arbitrage-free surface. Andreasen & Huge (2011) start from the quotes instead. They take $\vartheta(x, t)$ piecewise constant in normalised strike $x = K/F_t$, with one level per quote, and advance normalised calls $c(x, t)$ over each expiry interval with one fully implicit step:
+
+$$
+\Bigl[I - \tfrac12 (t_i - t_{i-1})\,\vartheta_i^2(x)\,x^2 D_{xx}\Bigr] c_i = c_{i-1}.
+$$
+
+The matrix is an M-matrix, so $c_i$ stays convex in $x$, within $(1 - x)^+ \le c \le 1$, and $c_i \ge c_{i-1}$. The surface is free of static arbitrage by construction, between expiries as well, where the same step is taken with a partial time step. `calibrate_andreasen_huge` fits the levels expiry by expiry, and reproduces arbitrage-free quotes to solver tolerance.
+
+### 8.4 Monte Carlo and the forward smile
+
+`local_vol_paths` simulates $\log S$ by Euler steps on a `LocalVolGrid`, storing only the requested times. Forward-start options pay $(S_{T_2}/S_{T_1} - k)^+$ at $T_2$. Their value depends on the joint law of $S_{T_1}$ and $S_{T_2}$, which the surface does not determine. `LocalVolPaths.forward_start` prices them under local vol. Put–call parity holds path by path: call minus put pays $S_{T_2}/S_{T_1} - k$, and its expectation is $e^{-rT_2}\bigl(e^{(r - q)(T_2 - T_1)} - k\bigr)$. With a constant volatility the price is $e^{-rT_1}$ times a Black–Scholes call on unit spot, with strike $k$, expiry $T_2 - T_1$ and the same $r$ and $q$.
