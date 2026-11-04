@@ -69,7 +69,11 @@ Andreasen–Huge
     :func:`calibrate_andreasen_huge` fits the levels expiry by expiry.
 Local-vol Monte Carlo
     :func:`local_vol_paths` (log-Euler) and :class:`LocalVolPaths`.
+Local-vol diagnostics
+    :func:`local_vol_diagnostics`: Dupire-PDE repricing errors and the arbitrage (undefined) region of a local-vol surface.
 """
+
+from spxa.vol.lv_diagnostics import LocalVolDiagnostics, local_vol_diagnostics
 
 from spxa.vol.local_vol_mc import LocalVolPaths, local_vol_paths
 
@@ -259,4 +263,6 @@ __all__ = [
     "calibrate_andreasen_huge",
     "LocalVolPaths",
     "local_vol_paths",
+    "LocalVolDiagnostics",
+    "local_vol_diagnostics",
 ]
