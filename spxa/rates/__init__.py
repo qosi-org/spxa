@@ -86,7 +86,11 @@ Caplet stripping
     :func:`strip_caplet_vols` bootstraps a piecewise-constant :class:`CapletVolCurve` from flat cap quotes.
 Swaption cube
     :class:`SwaptionCube`: SABR smiles on an expiry x tenor matrix, bilinear in log alpha, rho, log nu.
+CMS replication
+    :class:`CMSReplication`: CMS coupons, caplets and floorlets by static replication with annuity mappings.
 """
+
+from spxa.rates.cms import CMSReplication
 
 from spxa.rates.cube import SwaptionCube
 
@@ -393,4 +397,5 @@ __all__ = [
     "CapletVolCurve",
     "strip_caplet_vols",
     "SwaptionCube",
+    "CMSReplication",
 ]
