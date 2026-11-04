@@ -55,6 +55,7 @@ Curve risk
     :func:`with_node_values`; key-rate deltas :func:`key_rate_deltas`
     (:class:`KeyRateRisk`, :class:`KeyRateShiftedCurve`, :func:`key_rate_hats`).
     Hedging: :func:`hedge_notionals` and :func:`par_hedge` (:class:`HedgeResult`).
+    P&L explain: :func:`pnl_explain` (:class:`PnLExplain`) with :func:`node_gamma`.
     Principal components of curve moves: :func:`curve_pca` (:class:`CurvePCA`).
 Curve sets
     :class:`CurveSet`: named curves with a discount role and index
@@ -164,6 +165,9 @@ from spxa.rates.diagnostics import (
 )
 from spxa.rates.pca import CurvePCA, curve_pca
 from spxa.rates.risk import (
+    PnLExplain,
+    node_gamma,
+    pnl_explain,
     HedgeResult,
     hedge_notionals,
     par_hedge,
@@ -329,4 +333,7 @@ __all__ = [
     "HedgeResult",
     "hedge_notionals",
     "par_hedge",
+    "PnLExplain",
+    "node_gamma",
+    "pnl_explain",
 ]

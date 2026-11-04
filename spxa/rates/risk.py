@@ -59,6 +59,9 @@ __all__ = [
     "HedgeResult",
     "hedge_notionals",
     "par_hedge",
+    "node_gamma",
+    "PnLExplain",
+    "pnl_explain",
 ]
 
 PriceFunction = Callable[[Mapping[str, YieldCurve]], float]
@@ -369,3 +372,82 @@ def par_hedge(
     book = quote_deltas(pv, result, bump=bump, jacobian=J).deltas
     H = np.column_stack([quote_deltas(h, result, bump=bump, jacobian=J).deltas for h in hedges])
     return hedge_notionals(book, H)
+
+
+# ------------------------------------------------------------- P&L explain
+def node_gamma(
+    pv: PriceFunction,
+    curves: Mapping[str, YieldCurve],
+    names: Optional[Sequence[str]] = None,
+    bump: float = 1e-5,
+) -> np.ndarray:
+    r"""Matrix :math:`\partial^2 V/\partial x_i \partial x_j` by central differences.
+
+    The diagonal uses the three-point stencil and the off-diagonal the
+    four-point one, each with error :math:`O(\text{bump}^2)`.
+    """
+    names = _names(curves, names)
+    _, x = _stack(curves, names)
+    n = x.size
+    v0 = pv(curves)
+    E = np.eye(n) * bump
+
+    def f(dx: np.ndarray) -> float:
+        return pv(_bumped(curves, names, x + dx))
+
+    up = np.array([f(E[i]) for i in range(n)])
+    dn = np.array([f(-E[i]) for i in range(n)])
+    G = np.diag((up - 2 * v0 + dn) / bump**2)
+    for i in range(n):
+        for j in range(i + 1, n):
+            g = (f(E[i] + E[j]) - f(E[i] - E[j]) - f(E[j] - E[i]) + f(-E[i] - E[j])) / (4 * bump**2)
+            G[i, j] = G[j, i] = g
+    return G
+
+
+@dataclass(frozen=True)
+class PnLExplain:
+    """Full revaluation against first- and second-order node expansions."""
+
+    full: float
+    first_order: float
+    second_order: float
+
+    @property
+    def explained(self) -> float:
+        return self.first_order + self.second_order
+
+    @property
+    def unexplained(self) -> float:
+        return self.full - self.explained
+
+
+def pnl_explain(
+    pv: PriceFunction,
+    before: Mapping[str, YieldCurve],
+    after: Mapping[str, YieldCurve],
+    names: Optional[Sequence[str]] = None,
+    bump: float = 1e-7,
+    gamma_bump: float = 1e-5,
+) -> PnLExplain:
+    r"""Explain :math:`V(\text{after}) - V(\text{before})` by node moves.
+
+    With :math:`\Delta x` the change in node values between two fits on the
+    same nodes and scheme, the first-order term is
+    :math:`\delta^\top\Delta x` and the second-order term
+    :math:`\tfrac12\Delta x^\top\Gamma\,\Delta x`, both at ``before``.
+    The unexplained remainder is third order in :math:`\Delta x`.
+    """
+    names = _names(before, names)
+    labels0, x0 = _stack(before, names)
+    labels1, x1 = _stack(after, names)
+    if labels0 != labels1:
+        raise ValueError("the two curve sets must share their nodes")
+    dx = x1 - x0
+    delta = node_deltas(pv, before, names, bump).deltas
+    G = node_gamma(pv, before, names, gamma_bump)
+    return PnLExplain(
+        full=pv(after) - pv(before),
+        first_order=float(delta @ dx),
+        second_order=float(0.5 * dx @ G @ dx),
+    )
