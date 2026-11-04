@@ -12,6 +12,12 @@
 | Futures | `RateFuture`, `OvernightFuture`, `hull_white_futures_convexity`, `hull_white_compounded_convexity` |
 | Swaps | `Swap`, `ois_swap`, `vanilla_swap`, `BasisSwap`, `basis_swap`, `step_notional`, `linear_notional` |
 | Bonds | `FixedRateBond` |
+| Piecewise curves | `PiecewiseCurve`, `LogLinearDiscount`, `LinearZero`, `CubicZero`, `CubicSplineRT`, `MonotoneCubicRT`, `MonotoneConvex` |
+| Helpers | `DepositHelper`, `FRAHelper`, `FutureHelper`, `SwapHelper`, `BasisSwapHelper`, `BondHelper`, `quarterly_futures` |
+| Bootstrapping | `bootstrap_curve`, `BootstrapResult`, `fit_curves`, `CurveSpec`, `GlobalFitResult` |
+| Turns and policy steps | `ForwardSpread`, `turn_of_year`, `SpreadAdjustedCurve`, `flat_forward_curve`, `meeting_date_curve` |
+| Parametric curves | `NelsonSiegelSvensson`, `nelson_siegel`, `fit_nss`, `fit_nss_zero_rates` |
+| Curve sets and diagnostics | `CurveSet`, `compare_schemes`, `bump_locality`, `forward_roughness` |
 
 ---
 
@@ -153,3 +159,70 @@ For a 10-year 5% semi-annual bond issued on 15 January 2024 and valued on that d
 | Clean price at 5% on 15 March 2024 | 99.99319 |
 
 The 2034 final coupon falls on Sunday 15 January and Monday 16 January is Martin Luther King Day, so it is paid on 17 January 2034. The accrual still ends on the unadjusted date.
+
+---
+
+## 6. Curve construction
+
+### 6.1 Piecewise curves
+
+A `PiecewiseCurve` stores discount factors $P_i$ at node times $t_i$, with the node $(0, 1)$ prepended. An interpolation scheme turns them into a smooth $x(t) = -\log P(t)$, and the instantaneous forward $f = x'$ is the scheme's analytic derivative. Following Hagan & West (*Interpolation methods for curve construction*, 2006), the schemes are:
+
+| Scheme | Interpolates | Forward | Local |
+| :--- | :--- | :--- | :--- |
+| `LogLinearDiscount` | $\log P$ linearly | piecewise flat | yes |
+| `LinearZero` | zero rate $r$ linearly | piecewise linear in $t$, jumps at nodes | yes |
+| `CubicZero` | $r$ by a cubic spline | $C^1$ | no |
+| `CubicSplineRT` | $rt$ by a cubic spline | $C^1$ | no |
+| `MonotoneCubicRT` | $rt$ by Hyman-filtered Hermite cubics | $C^0$ | nearly |
+| `MonotoneConvex` | discrete forwards, Hagan–West monotone convex | $C^0$; positive with `positivity=True` when the discrete forwards are | nearly |
+
+Monotone convex reproduces each discrete forward $f^d_i = (x_i - x_{i-1})/(t_i - t_{i-1})$ as the average of $f$ over its interval. With zero rates 2.75%, 4%, 4.75%, 5%, 4.75% at 1–5 years, it gives forwards 0.0229375, 0.05010625, 0.0609 and 0.03625 at 0.3, 1.3, 2.1 and 4.5 years.
+
+`compare_schemes` scores schemes on Hagan and West's criteria: minimum forward, roughness $\int f'^2$, locality, and the largest forward move per unit zero-rate bump. On the hump-and-dip curve with zero rates 8.1%, 7%, 4.4%, 7%, 4%, 3% at 0.1, 1, 4, 9, 20 and 30 years:
+
+- `LinearZero` and `CubicZero` produce negative forwards, while `MonotoneConvex` stays positive.
+- `LogLinearDiscount` has minimum forward $(0.03 \cdot 30 - 0.04 \cdot 20)/10 = 0.01$.
+- A bump to $r_j$ moves the log-linear flat forward on $(t_{j-1}, t_j)$ by $t_j/(t_j - t_{j-1})$ per unit, and on $(t_j, t_{j+1})$ by $-t_j/(t_{j+1} - t_j)$. Its largest sensitivity is therefore $30/10 = 3$, reached at the last node.
+- The natural splines spread a single bump over every interval.
+
+### 6.2 Helpers and the bootstrap
+
+A helper is a quoted instrument that can compute its model quote on a mapping of named curves. Its *pillar* is the last date the quote depends on. `bootstrap_curve` sorts the helpers by pillar and puts a node at each pillar. It then solves node $i$, in $x_i = -\log P(t_i)$ with Brent's method, so that helper $i$ reprices. Projection curves are built on a known discount curve (dual-curve bootstrapping) by passing `known={"discount": ois}`.
+
+The two kinds of scheme behave differently:
+
+- **Local schemes.** Later nodes do not move the curve before $t_i$, so one pass reprices every helper to rounding.
+- **Non-local schemes.** The passes repeat until the nodes stop moving.
+
+`fit_curves` instead solves every node of several curves at once by Newton's method, with a finite-difference Jacobian. This handles cases a sequential bootstrap cannot: for example, long ESTR points that exist only through ESTR/EURIBOR basis swaps, which need both curves at once. For a single curve it converges to the same nodes.
+
+`BootstrapResult.jacobian` returns $J_{ij} = \partial q_i/\partial x_j$ at the solution. It is lower triangular for a local scheme. By the implicit function theorem, `node_sensitivities` returns $\partial x/\partial q = J^{-1}$: the move of each node per unit move of one quote with the others fixed, which is exactly the re-bootstrapped curve.
+
+### 6.3 Front end, futures and turns
+
+`Deposit.overnight`, `Deposit.tom_next` and `Deposit.spot_next` pin the curve between the trade date and spot. Traded on Friday 8 March 2024, the O/N deposit runs over the weekend to Monday, an accrual of $3/360$. With O/N and T/N helpers, $P(t_{\text{spot}}) = 1/\bigl((1 + \tau_{ON} r_{ON})(1 + \tau_{TN} r_{TN})\bigr)$.
+
+`quarterly_futures` builds a strip of consecutive 3M overnight futures from the next IMM date. Each `FutureHelper` carries Hull–White parameters $(a, \sigma)$ for the convexity adjustment of §3.3. With the right parameters, the strip recovers the forwards of the curve that produced the prices. With zero convexity the curve forward $F'$ equals the futures rate. It therefore overstates the true forward $F$ by exactly $1 + \tau F' = (1 + \tau F)e^{\Gamma_c}$.
+
+Year-end funding pressure lifts the overnight forward over the turn. `turn_of_year(year, s)` returns a `ForwardSpread` adding $s$ to the instantaneous forward from the last business day of the year to the first of the next: from 31 December 2024 to 2 January 2025, or, with the 2022 year end on a Saturday, from 30 December 2022 to 2 January 2023. A `SpreadAdjustedCurve` multiplies the base discount factor by $e^{-s\,|[t_a, t_b) \cap [0, t)|}$. With `spreads=` passed to `bootstrap_curve`, the smooth base curve is fitted under the known turn.
+
+### 6.4 Policy-meeting curves
+
+Overnight rates step on central-bank meeting dates. `flat_forward_curve` holds the forward at $r_j$ on $[s_{j-1}, s_j)$, which is `LogLinearDiscount` with nodes at the step dates. `meeting_date_curve` fits one rate per inter-meeting period to any helpers. The fit is exact with one helper per period, and Gauss–Newton least squares when there are more, for example monthly SOFR futures, several of which can fall between two FOMC meetings. A period that no helper depends on makes the Jacobian rank-deficient, and the fit raises `ValueError` rather than invent a rate.
+
+### 6.5 Parametric curves
+
+Svensson's curve, with $x_k = t/\tau_k$ and $L(x) = (1 - e^{-x})/x$, has
+
+$$
+z(t) = \beta_0 + \beta_1 L(x_1) + \beta_2\bigl(L(x_1) - e^{-x_1}\bigr) + \beta_3\bigl(L(x_2) - e^{-x_2}\bigr),
+\qquad
+f(t) = \beta_0 + \beta_1 e^{-x_1} + \beta_2 x_1 e^{-x_1} + \beta_3 x_2 e^{-x_2},
+$$
+
+so $f(0) = z(0^+) = \beta_0 + \beta_1$ and $z(\infty) = \beta_0$. Nelson–Siegel is $\beta_3 = 0$. The model is linear in the betas for fixed decay times, so `fit_nss_zero_rates` uses variable projection: a search over $\log\tau$ with a linear least-squares solve inside. `fit_nss` fits helper quotes, bonds included, by Levenberg–Marquardt.
+
+### 6.6 Curve sets
+
+A `CurveSet` is a mapping of named curves with a discount role and an index-to-curve projection map. Helpers read it directly, and `pv` prices swaps and basis swaps by the index on each floating leg.
