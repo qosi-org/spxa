@@ -164,3 +164,73 @@ class G2PP:
 
     def cap(self, cap: Any, projection: Optional[YieldCurve] = None) -> float:
         return float(sum(self.caplet(c, projection) for c in cap.caplets))
+
+    # -- swaptions --------------------------------------------------------
+    def option_on_cashflows(self, T: float, times: Any, amounts: Any, const: float = 0.0) -> float:
+        r"""Value of :math:`\bigl(c + \sum_i a_i P(T, t_i)\bigr)^+` paid at ``T``.
+
+        Brigo & Mercurio's one-dimensional formula (§4.2.3). Under the
+        :math:`T`-forward measure, condition on :math:`x_T`. Then
+        :math:`y_T` is Gaussian, and for amounts that change sign once the
+        payoff is monotone in :math:`y` with a single root :math:`\bar y(x)`.
+        The conditional expectation is a sum of normal distribution
+        functions, and the remaining integral over :math:`x` is done by
+        adaptive quadrature.
+        """
+        from scipy.integrate import quad
+        from scipy.optimize import brentq
+
+        t = np.asarray(times, float)
+        a_ = np.asarray(amounts, float)
+        crv = self.curve
+        pT = float(crv.discount(T))
+        A = (
+            np.asarray(crv.discount(t), float)
+            / pT
+            * np.exp(0.5 * (self.V(T, t) - self.V(0.0, t) + self.V(0.0, T)))
+        )
+        Ba, Bb = _B(self.a, t - T), _B(self.b, t - T)
+        mu = self.forward_mean(T, T)
+        C = self.covariance(T)
+        sx = np.sqrt(C[0, 0])
+        beta = C[0, 1] / C[0, 0]
+        s = np.sqrt(C[1, 1] - C[0, 1] ** 2 / C[0, 0])
+
+        def conditional(x: float) -> float:
+            c = a_ * A * np.exp(-Ba * x)
+            m = mu[1] + beta * (x - mu[0])
+            g = np.exp(-Bb * m + 0.5 * Bb * Bb * s * s)  # E[e^{-Bb y} | x] / e^{0}
+
+            def V(y: float) -> float:
+                return const + float(np.dot(c, np.exp(-Bb * y)))
+
+            lo, hi = m - 40 * s, m + 40 * s
+            vlo, vhi = V(lo), V(hi)
+            if vlo * vhi > 0:
+                return max(const + float(np.dot(c, g)), 0.0)
+            yb = brentq(V, lo, hi, xtol=1e-15, rtol=1e-15, maxiter=200)
+            d = (yb - m) / s
+            dd = (yb - m + Bb * s * s) / s
+            if vhi > 0:  # V positive above the root
+                return const * norm.sf(d) + float(np.dot(c * g, norm.sf(dd)))
+            return const * norm.cdf(d) + float(np.dot(c * g, norm.cdf(dd)))
+
+        def integrand(z: float) -> float:
+            return conditional(mu[0] + sx * z) * np.exp(-0.5 * z * z) / np.sqrt(2 * np.pi)
+
+        val = quad(integrand, -10, 10, epsabs=0.0, epsrel=1e-11, limit=400)[0]
+        return float(pT * val)
+
+    def swaption(self, swaption: Any, projection: Optional[YieldCurve] = None) -> float:
+        """European physically settled swaption (deterministic basis to ``projection``)."""
+        from spxa.rates.model_cashflows import swap_cashflows
+
+        if getattr(swaption, "settlement", "physical") != "physical":
+            raise ValueError("only physical settlement is supported")
+        crv = self.curve
+        T = float(crv.time(swaption.expiry))
+        cf = swap_cashflows(swaption.swap, crv, projection)
+        live = cf.times > T + 1e-12
+        return self.option_on_cashflows(
+            T, cf.times[live], cf.amounts[live], float(cf.amounts[~live].sum())
+        )
