@@ -676,3 +676,42 @@ class TestInflation:
                 round(bond.present_value(INFL_NOMINAL, curve, INFL_TODAY, model)["floor"], 3)
             )
         assert floors == [0.455, 3.204]
+
+
+class TestConnections:
+    def test_doc_mentions_the_checked_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in ("$2.6172\\%$", "$0.9287$", "$0.0515$", "$1.0293$"):
+            assert s in text, s
+
+    def test_key_rates_of_the_10y_par_rate(self) -> None:
+        from spxa.graph.autodiff.tape import GradientTape
+        from spxa.graph.graph import ComputationalGraph
+        from spxa.graph.node import ParameterNode
+        from spxa.graph.rates import par_swap_rate_node
+        from tests.integration.test_vol_rates_integration import CURVE as ESTR_CURVE
+
+        pillars = [float(t) for t in ESTR_CURVE.node_times]
+        zeros = [ParameterNode(float(z), f"z{i}") for i, z in enumerate(ESTR_CURVE.node_zero_rates)]
+        g = ComputationalGraph("par10")
+        g.add_output(par_swap_rate_node(zeros, pillars, 10.0, frequency=1.0), name="rate")
+        grads = GradientTape(g).gradient("rate")
+        assert f"{g.evaluate()['rate']:.4%}" == "2.6172%"
+        assert pillars[6] == pytest.approx(7.0, abs=0.05) and pillars[7] == pytest.approx(
+            10.0, abs=0.05
+        )
+        assert round(grads[zeros[7]], 4) == 0.9287
+        assert round(grads[zeros[6]], 4) == 0.0515
+        assert round(sum(grads.values()), 4) == 1.0293
+
+    def test_dv01_formula(self) -> None:
+        from spxa.rates import curve_price
+        from spxa.risk.instruments import InterestRateSwap
+
+        s = InterestRateSwap("S", "X", 0.03, 5.0, 0.5)
+        h = 1e-6
+        up = curve_price(s, {"X_CURVE": DISC.shifted(h)}).price
+        dn = curve_price(s, {"X_CURVE": DISC.shifted(-h)}).price
+        assert curve_price(s, {"X_CURVE": DISC}).dv01 == pytest.approx(
+            1e-4 * (up - dn) / (2 * h), rel=1e-7
+        )

@@ -37,6 +37,7 @@
 | Inflation indices and curves | `CPIFixings`, `InflationIndex`, `InflationCurve`, `Seasonality`, `bootstrap_inflation_curve` |
 | Inflation products | `ZeroCouponInflationSwap`, `YearOnYearInflationSwap`, `InflationLinkedBond` |
 | Jarrow–Yildirim | `JarrowYildirim`, `jy_paths`, `JYPaths`, `calibrate_jarrow_yildirim`, `InflationOptionQuote`, `JYFit` |
+| Connections | `curve_price`, `curve_pricing_fn`, `CurveQuote` |
 
 ---
 
@@ -494,3 +495,30 @@ This agrees with Mercurio (2005) to $10^{-15}$. Take $a_n = 0.1$, $\sigma_n = 1\
 
 `InflationLinkedBond` follows Treasury's conventions. Prices are quoted in real terms at a semiannual real yield, with simple interest over the current period, and the settlement amount is the price plus accrued interest, times the index ratio. Treasury's example, the 3.875% TIPS of January 2009 at a 3.898% real yield, prices at $99.811030$. On curves, each cash flow is worth $P_n(0,t)\hat I(t)/I_{\text{base}}$ times its real amount. The principal floor at par is a zero-coupon inflation put struck at the base CPI. For a new ten-year 0.125% bond with the model above, the floor is worth $0.455$ per 100 when expected inflation is 2% and $3.204$ when it is 0.25%. `ZeroCouponInflationSwap` and `YearOnYearInflationSwap` price the dated swaps. The latter applies the model's convexity on each period after the first.
 
+## 14. Connections
+
+### 14.1 Stress testing
+
+`curve_price` values the `InterestRateSwap` contracts of `spxa.risk` on a curve stored in the market dictionary under `<rate id>_CURVE`. It falls back to a flat curve at `r` when no curve is stored. The fixed leg pays $K$ every $\delta$ years on $t_k = k\delta$, with a short last period ending at $T$, and the single-curve floating leg is worth $1 - P(T)$. Per unit notional the payer swap is worth
+
+$$
+V = 1 - P(T) - K\sum_k \tau_k P(t_k),
+$$
+
+and its DV01 for a parallel rise $z$ of continuously compounded zero rates is exact:
+
+$$
+\frac{\partial V}{\partial z} = T\,P(T) + K\sum_k \tau_k t_k P(t_k).
+$$
+
+Against a base market, the change in `r` shifts the stored curve in parallel. A scenario's `rate_shifts_bps` therefore moves the whole curve, and `curve_pricing_fn` plugs a book into `StressTestingEngine`.
+
+### 14.2 Key rates from a graph
+
+`spxa.graph.rates` makes each zero rate $z_i$ at pillar $T_i$ an input node, with linear interpolation in zero rate, $z(t) = \sum_i w_i(t) z_i$. The par rate $S = (1 - P(T))/A$ of a swap with annuity $A = \sum_k \tau_k P(t_k)$ has the adjoint
+
+$$
+\frac{\partial S}{\partial z_i} = \frac{T P(T) w_i(T) + S\sum_k \tau_k t_k P(t_k) w_i(t_k)}{A},
+$$
+
+so one reverse pass of `GradientTape` gives every key rate. Because the weights sum to one, the key rates add up to the parallel sensitivity. Take the ESTR curve bootstrapped with `MonotoneConvex` from the eleven OIS quotes of `examples/rates_curve_example.py`, with its nodes as pillars. The 10Y annual par rate is $2.6172\%$, with a sensitivity of $0.9287$ to the 10Y zero, $0.0515$ to the 7Y zero and $1.0293$ in total.
