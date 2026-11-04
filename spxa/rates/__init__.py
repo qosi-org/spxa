@@ -80,7 +80,11 @@ SABR
     :func:`calibrate_sabr` and :func:`alpha_from_atm`.
 Arbitrage-free SABR
     :class:`ArbitrageFreeSABR` (Hagan et al. 2014 density PDE, Lawson–Swayne steps) and :class:`SABRDensity`.
+SABR Monte Carlo
+    :func:`sabr_paths` (exact volatility, Euler forward, absorption with a Brownian bridge for beta = 0).
 """
+
+from spxa.rates.sabr_mc import SABRPaths, sabr_paths
 
 from spxa.rates.sabr_pde import ArbitrageFreeSABR, SABRDensity
 
@@ -376,4 +380,6 @@ __all__ = [
     "calibrate_sabr",
     "ArbitrageFreeSABR",
     "SABRDensity",
+    "SABRPaths",
+    "sabr_paths",
 ]
