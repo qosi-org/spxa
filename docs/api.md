@@ -190,13 +190,20 @@ the running library. All signatures are exact.
    - [Bermudan Swaptions & Least Squares](#bermudan-swaptions-least-squares)
    - [Inflation](#inflation)
    - [Risk Adapter, Graph Nodes & Extension Points](#risk-adapter-graph-nodes-extension-points)
-22. [Implied Volatility Surfaces (`spxa.vol`)](#implied-volatility-surfaces-spxavol)
+22. [Volatility Modelling (`spxa.vol`, `spxa.graph.vol`)](#volatility-modelling-spxavol-spxagraphvol)
    - [Coordinates & SVI Slices](#coordinates-svi-slices)
    - [SSVI & eSSVI](#ssvi-essvi)
    - [Calibration](#calibration)
    - [Diagnostics, Interpolation & Distributions](#diagnostics-interpolation-distributions)
    - [Surfaces from Quotes](#surfaces-from-quotes)
    - [The Surface Object, Deltas & Risk](#the-surface-object-deltas-risk)
+   - [Local Volatility](#local-volatility)
+   - [Stochastic Local Volatility](#stochastic-local-volatility)
+   - [Rough Volatility & VIX](#rough-volatility-vix)
+   - [Martingale Optimal Transport](#martingale-optimal-transport)
+   - [Variance & Volatility Swaps](#variance-volatility-swaps)
+   - [Model Risk](#model-risk)
+   - [Risk Adapter, Processes & Graph Nodes](#risk-adapter-processes-graph-nodes)
 
 ---
 
@@ -5257,9 +5264,9 @@ This section covers interest-rate instruments on real calendar dates, priced on 
   - `nss_loadings(t, tau1, tau2=None, forward=False)`.
   - Typing aliases: `Cashflow`, `Leg` and `NotionalLike`; `CashflowRow` is a row of `cashflow_table`.
 
-## Implied Volatility Surfaces (`spxa.vol`)
+## Volatility Modelling (`spxa.vol`, `spxa.graph.vol`)
 
-Arbitrage-free implied-volatility slices and surfaces in log-forward moneyness $k = \log(K/F)$ and total variance $w = \sigma^2 T$. The theory is in [Implied volatility surfaces](theory/vol.md).
+This section covers arbitrage-free implied-volatility slices and surfaces in log-forward moneyness $k = \log(K/F)$ and total variance $w = \sigma^2 T$. It also covers the models calibrated to them: local, stochastic local and rough volatility, VIX, martingale optimal transport bounds, variance swaps and model risk. The theory is in [Volatility](theory/vol.md).
 
 ### Coordinates & SVI Slices
 - `log_moneyness(K, F)`, `strike_from_log_moneyness(k, F)`, `total_variance(sigma, T)`, `implied_vol_from_total_variance(w, T)`, `normalised_call_from_total_variance(k, w)` and `total_variance_from_price(price, F, K, T, df=1.0, option="call")`.
@@ -5300,3 +5307,80 @@ Arbitrage-free implied-volatility slices and surfaces in log-forward moneyness $
 - `black_delta(F, K, T, sigma, option="call", kind="forward", premium_adjusted=False, carry=1.0)`, `strike_from_delta(delta, F, T, sigma, ...)` (`sigma` may be a smile $k \mapsto \sigma(k)$) and `atm_dns_strike(F, T, sigma, premium_adjusted=False)`.
 - Bumps: `parallel_bump(size)`, `skew_bump(size)`, `expiry_buckets(pillars, size)` and `BumpedModel(base, bump)`. `bucketed_vega(value, surface, bumps, size)` returns the central-difference vega for each bump.
 - Persistence: `to_dict(obj)`, `from_dict(d)`, `dumps(obj, **json_kwargs)` and `loads(s)` for surfaces, total-variance models, forwards and yield curves (bit-exact JSON round trips).
+- Protocols: `TotalVarianceModel` (anything with `total_variance(k, T)`) and `ForwardLike` (anything with `forward(t)` and `discount(t)`).
+
+### Local Volatility
+- `LocalVolSurface(surface, dk=1e-3, dt_rel=1e-3, y_range=(-4.0, 4.0), t_min=1e-4)` applies Dupire's formula in implied total variance to a `VolSurface`.
+  - Values: `terms(y, T)`, `local_variance_k(y, T)`, `local_vol_k(y, T)`, `local_vol(K, T)` and `density(T, spot, r, q=0.0, n=801, n_time=400, width=8.0)`.
+  - Links to `spxa.pde`: `dupire_pde(r, q=0.0)` and `black_scholes_pde(r, q=0.0)`, plus `american(K, T, spot, r, q=0.0, option="put", **kw)` and `barrier(K, T, spot, barrier, r, q=0.0, barrier_type="down-and-out", option="call", **kw)`.
+  - `VolSurface.local_vol_surface(**kw)` and `VolSurface.local_vol(K, T)` call it.
+- `dupire_local_variance(y, w, w_y, w_yy, w_T)` (`nan` where undefined) and `bbf_implied_vol(local_vol_k, k, n=401)`, the short-expiry Berestycki–Busca–Florent inverse. `LocalVolGrid(ys, ts, variance, forward, floor=0.01, cap=3.0)` and `LocalVolGrid.from_surface(lv, ys, ts)` tabulate it for fast lookups.
+- Andreasen–Huge interpolation:
+  - `calibrate_andreasen_huge(expiries, strikes, vols, grid=None, max_nodes=None, weights=None)` fits piecewise-constant local-vol levels expiry by expiry.
+  - It returns an `AndreasenHugeFit(surface, errors, nfev)` with `max_error` and `rmse`.
+  - `AndreasenHugeSurface(expiries, nodes, levels, grid=None)` provides `grid_calls(t)`, `normalised_call(y, t)` and `total_variance(k, T)`, so it can back a `VolSurface`.
+  - Helpers: `andreasen_huge_grid(y_max=4.0, n=401, concentration=0.5)` and `piecewise_constant_vol(nodes_y, levels, y)`.
+- `local_vol_paths(sigma, spot, r, q, T, n_steps, n_paths, seed=0, antithetic=True, record=None)` returns `LocalVolPaths` with `at(t)`, `price(payoff, T)` and `forward_start(T1, T2, k, option="call")`.
+- `local_vol_diagnostics(lv, spot, r, q, strikes, expiries, n_space=801, n_time=400, y_grid=None, n_t=40, reprice=True)` returns `LocalVolDiagnostics` with `errors`, `max_error`, `worst()`, `undefined_fraction` and `first_undefined_time()`.
+
+### Stochastic Local Volatility
+- `Heston(v0, kappa, theta, xi, rho)` has `feller`, `scaled(eta)`, `mean_variance(t)`, `expected_total_variance(T)`, `cf(T)`, `price(K, T, F=1.0, df=1.0, option="call")`, `implied_vol(K, T, F=1.0)` and `atm_short_vol()`. `variance_std(model, t)` and `variance_quantile(model, t, q)` give the exact variance law.
+- `slv_grid(model, T, n_y=121, n_v=61, n_sd=5.0, vol=None, v_tail=1e-6)` returns an `SLVGrid(y, v)` with `shape`, `weights` and `node(y, v)`.
+- `slv_forward(model, grid, T, n_time=100, leverage=None, record=(), damping_steps=2)` solves the two-dimensional Fokker–Planck equation with ADI. It returns an `SLVForward` holding an `SLVDensity` for each recorded time. Each density has `mass`, `marginal()`, `expectation(g)`, `forward()`, `conditional_variance()`, `call(k)` and `implied_vol(k)`.
+- Leverage calibration:
+  - `calibrate_leverage(local_vol, model, T, grid=None, n_time=100, record=(), ...)` calibrates by forward induction, $L^2 = \sigma_{LV}^2/E[v \mid y]$. It returns a `LeverageCalibration(model, leverage, forward)` with `smile(k, t)`.
+  - `calibrate_leverage_particles(local_vol, model, T, n_steps=100, n_particles=50000, nodes=None, bandwidth=1.5, seed=None)` is the particle method, built on `kernel_conditional_mean(x, v, nodes, h)`. It returns a `ParticleCalibration`.
+  - `LeverageSurface(ts, ys, values)` has `row(t)` and `LeverageSurface.constant(value=1.0)`.
+- `calibrate_slv(local_vol, heston, eta, T, n_y=121, n_v=61, n_time=100, record=(), grid=None, vol=0.2)` scales vol-of-variance by the mixing fraction `eta` and calibrates the leverage. It returns an `SLVModel` with `paths(T, n_steps, n_paths, **kw)`, `pde(r=0.0, q=0.0, **kw)` and `smile(k, t)`. `as_local_vol(local_vol, T, ...)` tabulates a surface's local vol.
+- `slv_paths(model, leverage, T, n_steps, n_paths, record=(), seed=None, antithetic=True, lower=None, upper=None, bridge=True)` returns `SLVPaths` with `at(t)` and `price(payoff, t, knock_out=False)`. Barriers use Brownian-bridge survival weights.
+- `SLVPDE(model, leverage=None, r=0.0, q=0.0, n_x=161, n_v=61, n_time=100, n_sd=5.0, vol=None)` provides `european(K, T, option="call", spot=1.0)`, `barrier(K, T, option="call", spot=1.0, lower=None, upper=None)` and `price(payoff, T, spot=1.0, lower=None, upper=None)`.
+
+### Rough Volatility & VIX
+- `RoughHeston(v0, theta, lam, nu, rho, hurst)` has `log_cf(u, T, n_steps=200)`, `cf(u, T, n_steps=200)`, `expected_variance(t)` and `heston_limit()`. `fractional_riccati(u, T, alpha, lam, nu, rho, n_steps=200)` is the Adams scheme behind it.
+- `LiftedHeston(v0, theta, lam, nu, rho, hurst, n=20, weights=None, speeds=None)` has `g0(t)`, `expected_variance(t)`, `log_cf` and `cf`. `lifted_weights(n, hurst, r=None)` gives the geometric partition.
+- Both models inherit `FourierPricing`: `price(K, T, F=1.0, df=1.0, option="call", n_steps=200, n_quad=256, u_max=20.0)` and `implied_vol(K, T, F=1.0, n_steps=200)`.
+- `calibrate_rough_heston(maturities, strikes, vols, initial, free=("v0", "theta", "nu", "rho", "hurst"), forwards=None, weights=None, n_steps=100)` returns a `RoughHestonFit(model, vols, targets, nfev)` with `rmse`.
+- `rbergomi_paths(hurst, eta, rho, xi, T, n_steps, n_paths, s0=1.0, seed=None, keep_variance=False)` uses the hybrid scheme, with weights from `hybrid_weights(hurst, dt, n)`. It returns `RBergomiPaths` with `price(K, option="call", conditional=True)` and `implied_vol(K)`.
+- `calibrate_rbergomi(T, strikes, vols, initial, free=("hurst", "eta", "rho"), n_steps=50, n_paths=10000, seed=0)` returns an `RBergomiFit` with `rmse`.
+- `HestonVIX(model, delta=VIX_WINDOW)` (`VIX_WINDOW` = 30/365) gives VIX futures and options in closed form up to one quadrature: `variance_law(T)`, `expected_vix_squared(T)`, `futures(T)`, `options(T, K, option="call")` and `implied_vols(T, K)`.
+- `RBergomiVIX(hurst, eta, xi, delta=VIX_WINDOW, n_nodes=24)` provides:
+  - exact Gaussian sampling: `vix_squared(T, n_paths, seed=None)`, `futures(T, n_paths=200000, seed=None)`, `options(...)` and `implied_vols(...)`;
+  - lognormal approximations: `lognormal_moments(T)`, `futures_lognormal(T)` and `options_lognormal(T, K, option="call")`;
+  - quadrature details: `xi(t)`, `nodes(T)`, `covariance(T)` and `expected_vix_squared(T)`.
+- `calibrate_heston_joint(spx, vix, initial, weights=(1.0, 1.0, 1.0))` fits all five Heston parameters to `SmileQuote(T, strikes, vols)` SPX smiles and `VIXQuote(T, futures, strikes, vols)` VIX quotes. It returns a `JointFit` with `rmse(part)`.
+
+### Martingale Optimal Transport
+- `DiscreteMarginal(points, weights)` has `mean`, `call(k)`, `expect(f)` and `precedes(other, tol=1e-12)` (convex order). Built by `marginal_from_calls(strikes, calls, floor=None)` or `surface_marginals(surface, expiries, strikes)` (laws of $S_T/F_T$).
+- `mot_solve(mu, nu, payoff, sense="max"|"min")` solves the linear program with HiGHS. It returns an `MOTResult(value, plan, phi, psi, h, sense, mu, nu)` with `dual_value` and `hedge(x, y)`. `mot_bounds(mu, nu, payoff)` returns `(lower, upper)`, and `ot_solve(...)` drops the martingale constraint for comparison.
+- `mot_sinkhorn(mu, nu, payoff, sense="max", eps=1e-3, eps_start=None, tol=1e-9, max_iter=5000)` is entropic MOT. It returns a `SinkhornResult` with the potentials and the marginal and martingale errors reached.
+- `robust_bounds(surface, T1, T2, payoff, strikes, scale=1.0)` returns `(lower, upper, lower_result, upper_result)`. Ready-made payoffs are `forward_start_call(k, ratio=1.0)` and `forward_start_straddle(k=1.0, ratio=1.0)`.
+- Hedges as trades:
+  - `static_replication(points, values)` returns a `StaticReplication(cash, forward, strikes, calls)` with `price(marginal)`.
+  - `superhedge_pnl(result, payoff, x, y)` is the pathwise hedge P&L.
+- `mot_multi(marginals, payoff, sense="max")` handles several dates and returns `(value, plan)`.
+
+### Variance & Volatility Swaps
+- `fair_variance(otm, T, sd=None)` computes the fair variance from normalised OTM prices. `variance_swap_strike(surface, T)` and `gamma_swap_strike(surface, T)` apply the Carr–Madan replication to a surface; `variance_swap_curve(surface, expiries)` returns the term structure.
+- `ForwardVarianceCurve(expiries, strikes)` is piecewise-flat $\xi_0(t)$, with `integral(t)`, `variance_swap(T)` and `forward_variance_swap(T1, T2)`. `vix_index(surface, delta=30/365)` is the model-free VIX.
+- `realised_variance(log_prices, times, demean=False)`, `variance_swap_payoff(realised, strike, cap=None)` and `variance_swap_mtm(realised_variance, t, T, strike, fair_remaining, df, notional=1.0)`.
+- `heston_integrated_variance_laplace(model, T, s)` and `heston_volatility_swap(model, T)`, which gives $E\sqrt{V_T/T}$ by the Laplace transform.
+
+### Model Risk
+- `ModelRisk(names, prices, errors, std_errors)` holds the prices of one claim, or a vector of claims, under named models. Build it with `ModelRisk.from_prices(prices, errors=None, std_errors=None)` or `ModelRisk.from_samples(samples, payoff, errors=None, discount=1.0)`.
+  - Admissible set and Cont's coherent measure: `admissible(tolerance)`, `upper`, `lower`, `width` and `relative_width`.
+  - Penalised measure: `penalised(lam)` and `penalised_width(lam)`.
+  - Statistics and comparison: `significant(n_se=3.0)`, `within(lower, upper, n_se=3.0)`, `share(lower, upper)` (against a model-free interval) and `combine(weights)`.
+- `smile_rmse(model_vols, market_vols, weights=None)`.
+
+### Risk Adapter, Processes & Graph Nodes
+- `surface_price(instrument, market, base=None, dynamics="sticky_strike"|"sticky_moneyness", spot_bump=1e-4)` values an `spxa.risk.instruments.EuropeanOption` on `market["<id>_SURFACE"]`.
+  - Spot moves scale the forwards.
+  - Against `base`, changes in `<id>_VOL` and `r` are parallel vol and rate shifts.
+  - It returns a `SurfaceQuote(instrument_id, price, vol, forward, delta, vega)`.
+  - `surface_pricing_fn(book, base_market=None, dynamics=...)` feeds `StressTestingEngine`.
+- `process_vol_surface(process, spot, rate, expiries, dividend_yield=0.0, width=2.5, n_strikes=21)`, also available as `Process.to_vol_surface(spot, rate, expiries, **kw)`, works on exponential-Lévy models from the zoo.
+  - It prices OTM options with Lewis's formula, inverts Black and fits SVI per expiry.
+  - It returns a `ProcessSurface(surface, expiries, log_moneyness, model_vols, max_vol_error)`.
+- `spxa.graph.vol` nodes:
+  - `svi_total_variance_node(a, b, rho, m, sigma, *, k)` has an analytic gradient.
+  - `surface_price_node(spot, vol_shift=0.0, *, surface, strike, maturity, option="call", dynamics="sticky_strike")` uses the adapter's delta and vega as its vector–Jacobian product.
