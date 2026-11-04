@@ -423,3 +423,76 @@ class TestRoughVolatility:
         text = DOC.read_text(encoding="utf-8")
         assert "recovers the parameters within $0.2\\%$" in text
         assert "leaves an RMSE above one vol point" in text
+
+    def test_rough_bergomi_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "only $19\\%$",
+            "about $1.3$ at the money and $1.7$ at strike $1.2$",
+            "RMSE of $0.3$ vol points",
+        ):
+            assert s in text, s
+        assert "from $(1.6, -0.85)$ to $(1.56, -0.86)$" in text
+        K = np.array([0.8, 0.9, 1.0, 1.1, 1.2])
+        p = v.rbergomi_paths(0.1, 1.9, -0.9, 0.04, 1.0, 100, 50_000, seed=2)
+        ratio = p.price(K, conditional=False)[1] / p.price(K)[1]
+        assert round(ratio[2], 1) == 1.3 and round(ratio[-1], 1) == 1.7
+        T, Ks = 0.5, np.exp(np.linspace(-0.25, 0.15, 9))
+        target = v.rbergomi_paths(0.08, 1.6, -0.85, 0.035, T, 50, 100_000, seed=9).implied_vol(Ks)
+        start = dict(hurst=0.08, eta=1.0, rho=-0.5, xi0=0.035)
+        fit = v.calibrate_rbergomi(T, Ks, target, start, free=("eta", "rho"), seed=1)
+        assert round(100 * fit.rmse, 1) == 0.3
+        assert (round(fit.eta, 2), round(fit.rho, 2)) == (1.56, -0.86)
+
+    def test_vix_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$\\sqrt{E[\\mathrm{VIX}_T^2]} = 21.31\\%$",
+            "$18.04\\%$ (lognormal approximation: $17.98\\%$)",
+            "from $81.2\\%$ to $81.9\\%$",
+            "$135.5\\%$, $97.6\\%$, $66.5\\%$ and $53.6\\%$",
+            "futures price is $17.06\\%$ against $\\sqrt{E[\\mathrm{VIX}_T^2]} = 20\\%$",
+            "from $94.8\\%$ at strike $0.12$ to $76.0\\%$ at $0.30$",
+        ):
+            assert s in text, s
+        m = v.RBergomiVIX(0.1, 1.9, lambda t: 0.04 + 0.01 * np.asarray(t))
+        assert round(100 * math.sqrt(m.expected_vix_squared(0.5)), 2) == 21.31
+        assert round(100 * m.futures(0.5, 400_000, seed=1)[0], 2) == 18.04
+        assert round(100 * m.futures_lognormal(0.5), 2) == 17.98
+        iv = m.implied_vols(0.5, [0.14, 0.36], seed=1)
+        assert [round(100 * x, 1) for x in iv] == [81.2, 81.9]
+        atm = [
+            100 * m.implied_vols(t, m.futures(t, seed=1)[0], seed=1)[0]
+            for t in (0.05, 0.25, 1.0, 2.0)
+        ]
+        assert [round(x, 1) for x in atm] == [135.5, 97.6, 66.5, 53.6]
+        h = v.HestonVIX(v.Heston(0.04, 1.5, 0.04, 0.5, -0.7))
+        assert round(100 * h.futures(0.5), 2) == 17.06
+        assert math.sqrt(h.expected_vix_squared(0.5)) == pytest.approx(0.2, abs=1e-15)
+        assert [round(100 * x, 1) for x in h.implied_vols(0.5, [0.12, 0.30])] == [94.8, 76.0]
+
+    def test_joint_calibration_numbers(self) -> None:
+        from tests.unit.vol.test_joint_calibration import START, quotes
+
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "by $17$ vol points RMS",
+            "to $3.6$ vol points",
+            "$2.0$ vol points on SPX and $2.0$ VIX points",
+            "$\\xi = 1.66$",
+        ):
+            assert s in text, s
+        spx, vix = quotes()
+        market = [
+            v.VIXQuote(q.T, q.futures, q.strikes, q.vols[1] + 0.4 * np.log(q.strikes / q.futures))
+            for q in vix
+        ]
+        spx_only = v.calibrate_heston_joint(spx, market, START, weights=(1.0, 0.0, 0.0))
+        assert round(100 * spx_only.rmse("vix")) == 17
+        joint = v.calibrate_heston_joint(spx, market, START)
+        assert round(100 * joint.rmse("vix"), 1) == 3.6
+        assert (
+            round(100 * joint.rmse("spx"), 1) == 2.0
+            and round(100 * joint.rmse("futures"), 1) == 2.0
+        )
+        assert round(joint.model.xi, 2) == 1.66

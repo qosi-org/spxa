@@ -20,6 +20,7 @@
 | Local-vol simulation and checks | `local_vol_paths`, `LocalVolPaths`, `local_vol_diagnostics`, `LocalVolDiagnostics` |
 | Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `calibrate_leverage_particles`, `slv_paths`, `SLVPDE`, `calibrate_slv`, `as_local_vol` |
 | Rough Heston | `RoughHeston`, `fractional_riccati`, `LiftedHeston`, `lifted_weights`, `calibrate_rough_heston`, `RoughHestonFit` |
+| Rough Bergomi and VIX | `rbergomi_paths`, `RBergomiPaths`, `calibrate_rbergomi`, `RBergomiVIX`, `HestonVIX`, `VIX_WINDOW`, `calibrate_heston_joint`, `SmileQuote`, `VIXQuote` |
 
 ---
 
@@ -318,3 +319,32 @@ The fractional kernel is a completely monotone function, so it is a mixture of e
 ### 10.3 Calibration
 
 `calibrate_rough_heston` fits $(v_0, \theta, \nu, \rho, H)$ to implied-volatility smiles by bounded least squares, with $\lambda$ fixed by default because it is weakly identified alongside $\theta$. Fitted to its own smiles at three expiries from $0.1$ to $1.5$ years, it recovers the parameters within $0.2\%$. The residual is set by the accuracy of the implied-volatility inversion inside the finite-difference Jacobian. Fixing $H = 1/2$ (classical Heston) on the same smiles leaves an RMSE above one vol point: no choice of $\nu$ and $\rho$ makes the skew steep at $0.1$ years and still right at $1.5$ years.
+
+### 10.4 Rough Bergomi
+
+Rough Bergomi (Bayer, Friz & Gatheral) models the forward variance curve $\xi_t(u) = E_t[v_u]$ directly:
+
+$$
+v_t = \xi_0(t)\exp\Bigl(\eta\widetilde W_t - \tfrac12\eta^2\operatorname{Var}\widetilde W_t\Bigr), \qquad \widetilde W_t = \sqrt{2H}\int_0^t (t - s)^{H - 1/2}\,dW_s,
+$$
+
+with spot driven by $\rho\,dW + \sqrt{1 - \rho^2}\,dW^\perp$. It fits any initial term structure $\xi_0$ by construction, but it has no characteristic function. `rbergomi_paths` uses the hybrid scheme of Bennedsen, Lunde & Pakkanen. The kernel's singular first cell is sampled exactly, jointly with $dW$, and the rest of the convolution uses the optimal discretisation points through an FFT. The compensator uses the scheme's own variance, so $E[v_t] = \xi_0(t)$ holds on the grid. On the same grid, the smile agrees with exact Cholesky simulation of the Volterra process (`spxa.rough.RoughBergomi`). Prices use the mixed estimator of Romano & Touzi: conditional on $W$, $\log S_T$ is Gaussian, so the orthogonal noise integrates out in a Black formula. At $\rho = -0.9$ only $19\%$ of the variance is orthogonal, and the standard error falls by a factor of about $1.3$ at the money and $1.7$ at strike $1.2$.
+
+`calibrate_rbergomi` fits $(H, \eta, \rho, \xi_0)$ to one smile with common random numbers. Every evaluation reuses one fixed sample, so the objective is a smooth deterministic function and a finite-difference least-squares solver applies. Quotes generated from the same sample are fitted exactly. Quotes from an independent simulation with ten times as many paths, fitted with $\eta$ and $\rho$ free and $H$ at its true value, leave an RMSE of $0.3$ vol points. That residual is the Monte Carlo error of the calibration sample, and it moves $(\eta, \rho)$ from $(1.6, -0.85)$ to $(1.56, -0.86)$.
+
+### 10.5 VIX
+
+The squared VIX index at $T$ is the 30-day forward variance, $\mathrm{VIX}_T^2 = \frac1\Delta\int_T^{T+\Delta}\xi_T(u)\,du$ with $\Delta = 30/365$ (`VIX_WINDOW`). In rough Bergomi, $\xi_T(u) = \xi_0(u)\exp(\eta G_u - \frac12\eta^2\operatorname{Var}G_u)$, where $G_u = \sqrt{2H}\int_0^T(u - s)^{H-1/2}\,dW_s$ is Gaussian. Its covariance has a closed form through ${}_2F_1$. `RBergomiVIX` puts the window on 24 Gauss–Legendre nodes and samples $\mathrm{VIX}_T^2$ exactly, so the only error is Monte Carlo noise. A moment-matched lognormal gives a fast approximation. For $H = 0.1$, $\eta = 1.9$ and $\xi_0(t) = 0.04 + 0.01t$ at $T = 0.5$:
+
+* $\sqrt{E[\mathrm{VIX}_T^2]} = 21.31\%$;
+* the futures price is $18.04\%$ (lognormal approximation: $17.98\%$), the gap being Jensen's concavity adjustment;
+* VIX option implied volatilities rise only from $81.2\%$ to $81.9\%$ between strikes $0.14$ and $0.36$;
+* at-the-money VIX implied volatility falls with expiry: $135.5\%$, $97.6\%$, $66.5\%$ and $53.6\%$ at $0.05$, $0.25$, $1$ and $2$ years.
+
+Lognormal forward variances make the VIX nearly lognormal, so the VIX smile is almost flat, while the market's slopes clearly upward.
+
+In Heston, $E_T[v_u]$ is affine in $v_T$, so $\mathrm{VIX}_T^2 = av_T + b$ with $a = (1 - e^{-\kappa\Delta})/(\kappa\Delta)$ and $b = \theta(1 - a)$. `HestonVIX` integrates against the noncentral $\chi^2$ law of $v_T$. The substitution $x = y^p$ removes the density's singularity at zero when the Feller condition fails, and a smile takes a few milliseconds. For $(v_0, \kappa, \theta, \xi, \rho) = (0.04, 1.5, 0.04, 0.5, -0.7)$ at $T = 0.5$, the futures price is $17.06\%$ against $\sqrt{E[\mathrm{VIX}_T^2]} = 20\%$. The VIX smile slopes *down*, from $94.8\%$ at strike $0.12$ to $76.0\%$ at $0.30$, the wrong sign against the market.
+
+### 10.6 Joint SPX/VIX calibration
+
+`calibrate_heston_joint` fits Heston to SPX smiles (`SmileQuote`), VIX futures and VIX option smiles (`VIXQuote`) together, with a weight per block. With consistent quotes it recovers the parameters. The interesting case is the market's: take SPX smiles and VIX futures from one Heston model, and give the VIX options an upward skew of $+0.4$ per unit of log-moneyness. An SPX-only fit is exact on SPX and on the futures, but misses the VIX smile by $17$ vol points RMS. The joint fit cuts that to $3.6$ vol points, at the cost of $2.0$ vol points on SPX and $2.0$ VIX points on the futures. It does this by raising the vol of variance to $\xi = 1.66$, far beyond the Feller condition, so that mass piles up near zero variance. This is the SPX/VIX joint calibration problem: models that price SPX options well disagree with VIX options. It is a standard argument for rough and path-dependent volatility models.
