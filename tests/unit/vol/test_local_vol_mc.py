@@ -51,3 +51,25 @@ def test_record_times() -> None:
         local_vol_paths(lambda s, t: 0.2, 100.0, 0.0, 0.0, 1.0, 4, 10, record=[0.3])
     with pytest.raises(ValueError):
         p.at(0.5)
+
+
+def test_forward_start_options(paths) -> None:  # type: ignore[no-untyped-def]
+    k = np.array([0.0, 0.9, 1.0, 1.1])
+    c, se = paths.forward_start(0.5, 1.0, k)
+    p, _ = paths.forward_start(0.5, 1.0, k, "put")
+    ratio = paths.at(1.0) / paths.at(0.5)
+    # pathwise parity, and E[S_2/S_1] = exp((r - q)(T2 - T1))
+    assert c - p == pytest.approx(np.exp(-0.03) * (ratio.mean() - k), abs=1e-13)
+    assert abs(c[0] - np.exp(-0.03) * np.exp(0.02 * 0.5)) < 4 * se[0]
+    assert c[1] > c[2] > c[3] > 0
+
+
+def test_forward_start_with_constant_vol() -> None:
+    p = local_vol_paths(
+        lambda s, t: 0.25 + 0.0 * s, 100.0, 0.03, 0.01, 1.5, 6, 200_000, seed=12, record=[0.5, 1.5]
+    )
+    k = np.array([0.9, 1.0, 1.2])
+    c, se = p.forward_start(0.5, 1.5, k)
+    # the return over [T1, T2] is lognormal and independent of S_T1
+    exact = np.exp(-0.03 * 0.5) * black_scholes_price(1.0, k, 1.0, 0.03, 0.25, 0.01, "call")
+    assert np.all(np.abs(c - exact) < 4 * se)

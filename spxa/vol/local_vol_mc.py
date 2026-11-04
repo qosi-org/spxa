@@ -42,6 +42,16 @@ class LocalVolPaths:
         v = np.exp(-self.r * T) * payoff(self.at(T))
         return float(v.mean()), float(v.std(ddof=1) / np.sqrt(v.size))
 
+    def forward_start(
+        self, T1: float, T2: float, k: Any, option: str = "call"
+    ) -> tuple[np.ndarray, np.ndarray]:
+        r"""Forward-start options paying :math:`(\eta(S_{T_2}/S_{T_1} - k))^+` at ``T2``, with standard errors."""
+        ret = self.at(T2) / self.at(T1)
+        kk = np.atleast_1d(np.asarray(k, float))
+        eta = 1.0 if option == "call" else -1.0
+        pay = np.exp(-self.r * T2) * np.maximum(eta * (ret[None, :] - kk[:, None]), 0.0)
+        return pay.mean(axis=1), pay.std(axis=1, ddof=1) / np.sqrt(ret.size)
+
 
 def local_vol_paths(
     sigma: Callable[[Any, float], Any],
