@@ -1,7 +1,13 @@
-# Implied Volatility Surfaces
+# Volatility
 
-`spxa.vol` builds implied-volatility surfaces that are free of static arbitrage. This chapter covers the parametric layer (SVI slices, the SSVI and eSSVI surfaces, their calibration, interpolation in time, and the risk-neutral distributions they imply), and then the surface object built on it from option quotes. Option formulas, implied-volatility inversion and quote handling come from [Market conventions](market.md).
+`spxa.vol` builds implied-volatility surfaces that are free of static arbitrage, and calibrates models to them.
 
+- §1–7 cover the parametric layer, from SVI slices, SSVI and eSSVI through calibration, interpolation in time and the risk-neutral distributions they imply, up to the surface object built from option quotes.
+- §8–10 cover the models consistent with a surface: local volatility, stochastic local volatility, and rough Heston and rough Bergomi with the VIX.
+- §11–13 cover what a surface does not pin down: model-free bounds by martingale optimal transport, variance and volatility swaps, and the model risk of exotics.
+- §14 connects the package to stress testing, the process zoo and computational graphs.
+
+Option formulas, implied-volatility inversion and quote handling come from [Market conventions](market.md).
 | Object | Implementation |
 | :--- | :--- |
 | Coordinates | `log_moneyness`, `total_variance`, `normalised_call_from_total_variance`, `total_variance_from_price` |
@@ -25,6 +31,7 @@
 | Robust pricing | `robust_bounds`, `forward_start_call`, `forward_start_straddle`, `static_replication`, `StaticReplication`, `superhedge_pnl` |
 | Variance and volatility swaps | `fair_variance`, `variance_swap_strike`, `gamma_swap_strike`, `variance_swap_mtm`, `variance_swap_curve`, `ForwardVarianceCurve`, `vix_index`, `heston_volatility_swap`, `heston_integrated_variance_laplace`, `realised_variance`, `variance_swap_payoff` |
 | Model risk | `ModelRisk`, `smile_rmse` |
+| Connections | `surface_price`, `surface_pricing_fn`, `SurfaceQuote`, `process_vol_surface`, `ProcessSurface` |
 
 ---
 
@@ -426,3 +433,26 @@ It is coherent in $X$: subadditive and positively homogeneous, zero on claims ev
 ### 13.2 Mixing fractions
 
 Calibrate local volatility ($\eta = 0$) and SLV with $\eta = 0.5$ and $\eta = 1$ (§9) to the SSVI surface of §8. All three fit the smiles at $0.5$ and $1$ year within 15 bp, and their vanilla prices agree to calibration noise. Forward-start calls $(Y - kX)^+$ between $0.5$ and $1$ year do not agree. Local volatility prices them highest and the full Heston mix lowest, a relative spread of 7% at the money and 21% at $k = 1.1$. All prices lie inside the MOT bounds, yet the family covers only 2%, 8% and 11% of the bounds at $k = 0.9, 1, 1.1$. The space of models that fit the smiles is far larger than one SLV family. On the SLV PDE, a one-year up-and-out call (barrier 130, strike 100) moves by 9% across the family and a down-and-out (barrier 85) by 1%. A variance swap is fixed by replication (§12), and all three models price it at $K_{\text{var}}$. The one-year volatility swap spreads by $0.008$, falling as the vol of variance rises with $\eta$.
+
+## 14. Connections
+
+### 14.1 Stress testing
+
+`surface_price` values the `EuropeanOption` contracts of `spxa.risk` on a surface stored in the market dictionary under `<id>_SURFACE`, so `StressTestingEngine` scenarios reach the smile. A spot move scales every forward by $S/S_0$. Against a base market, the change in `<id>_VOL` is a parallel vol shift and the change in `r` multiplies discount factors by $e^{-\Delta r T}$ and forwards by $e^{\Delta r T}$. Under sticky strike the vol is read at the strike, $\sigma(K, T)$. Under sticky moneyness it is read at the shifted log-moneyness $\log(K/F)$, so the smile moves with the forward. Moving the forward to $F + h$ then gives the delta of §7.2, $\Delta_{BS} - \mathcal V_{BS}\,\sigma_k/F$, and a put's delta is less negative on a downward skew.
+
+A parallel shift of continuously compounded zero rates is exactly $P \mapsto Pe^{-\Delta r T}$, $F \mapsto Fe^{\Delta r T}$. So under sticky moneyness a rate scenario on a surface over a bootstrapped OIS curve reprices to $10^{-12}$ like rebuilding the surface on the shifted curve.
+
+### 14.2 Surfaces of zoo processes
+
+`process_vol_surface` (and `Process.to_vol_surface`) turns an exponential-Lévy model $S_T = S_0e^{(r-q)T + X_T}$ from `spxa.zoo` into a surface. It prices out-of-the-money options by Lewis's formula, inverts Black at strikes spaced in at-the-money standard deviations, and fits raw SVI per expiry. The model vols are exact: for a Merton jump diffusion they match the Poisson series to $10^{-8}$. Take $\sigma = 15\%$, half a jump a year of mean $-10\%$ and spread $15\%$, with $r = 3\%$, $q = 1\%$ and expiries from 3 months to 2 years. The surface then shows a downside skew that flattens with maturity, and SVI misses the model smile by 12.4 bp at most.
+
+### 14.3 Graph nodes
+
+`spxa.graph.vol` gives the SVI total variance as a node of its five parameters, with the analytic gradient
+
+$$
+\partial_b w = \rho(k - m) + R,\quad \partial_\rho w = b(k - m),\quad
+\partial_m w = -b\Bigl(\rho + \frac{k - m}{R}\Bigr),\quad \partial_\sigma w = \frac{b\sigma}{R},
+$$
+
+where $R = \sqrt{(k - m)^2 + \sigma^2}$ and $\partial_a w = 1$. It also gives the value of an option on a surface as a node of spot and a parallel vol shift, whose vector–Jacobian product is the adapter's delta and vega.

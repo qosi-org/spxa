@@ -69,7 +69,7 @@ nav:
       - PDE & PIDE methods: theory/pde.md
       - Market conventions: theory/market.md
       - Interest rates: theory/rates.md
-      - Implied volatility surfaces: theory/vol.md
+      - Volatility: theory/vol.md
       - Estimation & calibration: theory/calibration.md
   - Tutorials:
       - First composition: tutorials/01_first_composition.ipynb

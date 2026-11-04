@@ -619,3 +619,17 @@ class TestModelRisk:
             assert np.all(mr.penalised_width(lam + 0.5) <= mr.penalised_width(lam))
         w = np.array([1.0, -2.0])
         assert mr.combine(w).width() <= abs(w) @ mr.width() + 1e-12
+
+
+class TestConnections:
+    def test_doc_mentions_the_checked_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in ("12.4 bp at most", "to $10^{-8}$", "reprices to $10^{-12}$"):
+            assert s in text, s
+
+    def test_merton_surface(self) -> None:
+        from spxa.zoo.levy.merton import MertonJumpDiffusion
+
+        m = MertonJumpDiffusion(sigma=0.15, rate=0.5, jump_mean=-0.1, jump_std=0.15)
+        out = v.process_vol_surface(m, 100.0, 0.03, [0.25, 0.5, 1.0, 2.0], dividend_yield=0.01)
+        assert round(out.max_vol_error * 1e4, 1) == 12.4
