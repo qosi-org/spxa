@@ -76,6 +76,19 @@ def test_hump_variance_against_quadrature_and_parity() -> None:
     assert taus[np.argmax(v(0.0, taus))] == pytest.approx(1 / 0.4 - 0.004 / 0.006, abs=1e-3)
 
 
+def test_piecewise_hull_white_through_breakpoints() -> None:
+    from tests.unit.rates.test_hull_white import HW_PW
+
+    hjm = GaussianHJM.from_hull_white(HW_PW)
+    for T, S in ((0.5, 2.0), (2.5, 6.0), (6.0, 16.0)):
+        K = float(CURVE.discount(S) / CURVE.discount(T))
+        assert hjm.zcb_option(T, S, K) == pytest.approx(HW_PW.zcb_option(T, S, K), rel=1e-11)
+    # without the breakpoints the quadrature straddles the jumps and loses accuracy
+    blind = GaussianHJM(CURVE, hjm.vols)
+    K = float(CURVE.discount(6.0) / CURVE.discount(2.5))
+    assert abs(blind.zcb_option(2.5, 6.0, K) / HW_PW.zcb_option(2.5, 6.0, K) - 1) > 1e-6
+
+
 def test_validation() -> None:
     with pytest.raises(ValueError):
         GaussianHJM(CURVE, [])

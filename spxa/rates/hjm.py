@@ -55,9 +55,17 @@ def hump_vol(alpha: float, beta: float, gamma: float) -> VolFn:
 class GaussianHJM:
     """Gaussian HJM on ``curve`` with independent factor volatilities ``vols[i](t, T)``."""
 
-    def __init__(self, curve: YieldCurve, vols: Sequence[VolFn], n_quad: int = 48) -> None:
+    def __init__(
+        self,
+        curve: YieldCurve,
+        vols: Sequence[VolFn],
+        n_quad: int = 48,
+        breakpoints: Sequence[float] = (),
+    ) -> None:
+        """``breakpoints`` are calendar times where the vols jump; time integrals are split there."""
         if len(vols) < 1:
             raise ValueError("need at least one volatility factor")
+        self.breakpoints = np.sort(np.asarray(breakpoints, float))
         self.curve = curve
         self.vols = list(vols)
         self.n_factors = len(self.vols)
@@ -83,13 +91,15 @@ class GaussianHJM:
         """Log-variance of :math:`P(T, e)/P(T, s)`: :math:`\\int_0^T |\\Sigma(u, e) - \\Sigma(u, s)|^2 du`."""
         if T <= 0:
             return 0.0
-        half = 0.5 * T
+        edges = np.r_[0.0, self.breakpoints[(self.breakpoints > 0) & (self.breakpoints < T)], T]
         total = 0.0
-        for xi, wi in zip(self._x, self._w):
-            u = half * (xi + 1.0)
-            d = self.Sigma(u, e) - self.Sigma(u, s)
-            total += wi * float(np.dot(d, d))
-        return total * half
+        for a, b in zip(edges[:-1], edges[1:]):
+            half = 0.5 * (b - a)
+            for xi, wi in zip(self._x, self._w):
+                u = a + half * (xi + 1.0)
+                d = self.Sigma(u, e) - self.Sigma(u, s)
+                total += wi * half * float(np.dot(d, d))
+        return total
 
     def zcb_option(self, T: float, S: float, K: Any, option: str = "call") -> Any:
         from spxa.market.black import black_price
@@ -122,3 +132,16 @@ class GaussianHJM:
 
     def cap(self, cap: Any, projection: Optional[YieldCurve] = None) -> float:
         return float(sum(self.caplet(c, projection) for c in cap.caplets))
+
+    @classmethod
+    def from_hull_white(cls, model: Any, n_quad: int = 48) -> "GaussianHJM":
+        """The HJM form :math:`\\sigma(t)e^{-a(T-t)}` of a (piecewise-constant) Hull–White model."""
+        knots = np.asarray(model.sigma_times, float)
+        levels = np.asarray(model.sigma, float)
+        a = float(model.a)
+
+        def vol(t: Any, T: Any) -> Any:
+            lvl = levels[np.searchsorted(knots, np.asarray(t, float), side="right")]
+            return lvl * np.exp(-a * (np.asarray(T, float) - t))
+
+        return cls(model.curve, [vol], n_quad, knots)
