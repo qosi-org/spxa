@@ -110,7 +110,11 @@ Hull-White two-factor
     :class:`HullWhite2F`: Hull-White two-factor parameters and the bijection with G2++.
 Black-Karasinski
     :class:`BlackKarasinski`: lognormal short rate on a curve-fitted trinomial tree.
+Black-Karasinski Monte Carlo
+    :func:`black_karasinski_paths`: exact OU simulation on the tree-fitted drift.
 """
+
+from spxa.rates.bk_mc import BlackKarasinskiPaths, black_karasinski_paths
 
 from spxa.rates.black_karasinski import BlackKarasinski, BlackKarasinskiTree
 
@@ -466,4 +470,6 @@ __all__ = [
     "HullWhite2F",
     "BlackKarasinski",
     "BlackKarasinskiTree",
+    "BlackKarasinskiPaths",
+    "black_karasinski_paths",
 ]
