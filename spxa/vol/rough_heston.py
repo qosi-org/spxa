@@ -35,6 +35,8 @@ from typing import Any
 import numpy as np
 from scipy.special import gamma
 
+from spxa.market.implied import implied_black_volatility
+
 __all__ = ["RoughHeston", "fractional_riccati"]
 
 
@@ -114,6 +116,63 @@ class RoughHeston:
     def cf(self, u: Any, T: float, n_steps: int = 200) -> np.ndarray:
         r"""Characteristic function of :math:`X_T = \log(F_T/F_0)`."""
         return np.exp(self.log_cf(u, T, n_steps))
+
+    def price(
+        self,
+        K: Any,
+        T: float,
+        F: float = 1.0,
+        df: float = 1.0,
+        option: str = "call",
+        n_steps: int = 200,
+        n_quad: int = 256,
+        u_max: float = 20.0,
+    ) -> Any:
+        r"""Vanilla prices by Lewis's formula,
+
+        .. math:: C = F - \frac{\sqrt{FK}}{\pi}\int_0^\infty
+            \operatorname{Re}\bigl[e^{iuk}\varphi(u - \tfrac{i}{2})\bigr]\frac{du}{u^2 + 1/4},
+            \qquad k = \log(F/K),
+
+        on ``n_quad`` Gauss–Legendre nodes over :math:`[0, U]` with
+        :math:`U = u_{\max}/\sqrt{\bar v T}` (``u_max = 20`` by default), past
+        which the integrand is negligible. Truncating keeps the explicit
+        Adams scheme out of the stiff large-:math:`u` region, where it is
+        unstable for small :math:`H`. Any node where the scheme still
+        overflows carries a negligible weight and is dropped. The
+        characteristic function is solved once for all strikes.
+        """
+        if T <= 0:
+            raise ValueError("T must be positive")
+        Ks = np.atleast_1d(np.asarray(K, float))
+        vbar = max(float(self.expected_variance(T)), self.v0, 1e-4)
+        U = u_max / math.sqrt(vbar * T)
+        x, w = np.polynomial.legendre.leggauss(int(n_quad))
+        u, du = 0.5 * U * (x + 1.0), 0.5 * U * w
+        with np.errstate(over="ignore", invalid="ignore"):
+            phi = self.cf(u - 0.5j, T, n_steps)
+        phi = np.where(np.isfinite(phi), phi, 0.0)
+        k = np.log(F / Ks)
+        integrand = (np.exp(1j * np.outer(k, u)) * phi).real / (u * u + 0.25)
+        calls = F - np.sqrt(F * Ks) / math.pi * (integrand @ du)
+        if option == "put":
+            out = calls - (F - Ks)
+        elif option == "call":
+            out = calls
+        else:
+            raise ValueError("option must be 'call' or 'put'")
+        out = df * out
+        return float(out[0]) if np.ndim(K) == 0 else out.reshape(np.shape(K))
+
+    def implied_vol(self, K: Any, T: float, F: float = 1.0, n_steps: int = 200) -> Any:
+        """Black implied volatilities (out-of-the-money options are inverted)."""
+        Ks = np.asarray(K, float)
+        calls = np.asarray(self.price(Ks, T, F, n_steps=n_steps), float)
+        puts = calls - (F - Ks)
+        otm = np.where(Ks >= F, calls, puts)
+        kind = np.where(Ks >= F, "call", "put")
+        vol = np.asarray(implied_black_volatility(otm, F, Ks, T, 1.0, kind), float)
+        return float(vol) if vol.ndim == 0 else vol
 
     def expected_variance(self, t: Any) -> Any:
         r""":math:`E[V_t] = V_0 + (\theta - V_0)\,\bigl(1 - E_\alpha(-\lambda t^\alpha)\bigr)`,

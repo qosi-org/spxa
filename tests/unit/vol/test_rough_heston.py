@@ -58,3 +58,32 @@ def test_martingale_and_expected_variance() -> None:
         RoughHeston(0.04, 0.04, 0.3, 0.3, -0.7, 0.7)
     with pytest.raises(ValueError):
         ROUGH.heston_limit()
+
+
+K = np.array([0.7, 0.9, 1.0, 1.1, 1.4])
+
+
+def test_prices_reduce_to_heston() -> None:
+    m = RoughHeston(0.04, 0.04, 1.5, 0.3, -0.7, 0.5)
+    h = m.heston_limit()
+    for T, tol in ((0.1, 1e-8), (1.0, 1e-7), (3.0, 5e-7)):
+        np.testing.assert_allclose(m.price(K, T, n_steps=400), h.price(K, T), atol=tol)
+    calls, puts = (
+        ROUGH.price(K, 1.0, F=1.2, df=0.95),
+        ROUGH.price(K, 1.0, F=1.2, df=0.95, option="put"),
+    )
+    np.testing.assert_allclose(calls - puts, 0.95 * (1.2 - K), atol=1e-14)
+
+
+def test_rough_smile_converges_and_skew_explodes() -> None:
+    vols = [ROUGH.implied_vol(np.array([0.9, 1.0, 1.1]), 1.0, n_steps=n) for n in (200, 400, 800)]
+    assert np.abs(vols[2] - vols[1]).max() < np.abs(vols[1] - vols[0]).max() < 1e-5
+    taus = np.array([0.0025, 0.01])
+    skews = []
+    for tau in taus:
+        e = 0.02 * np.sqrt(tau)
+        v = ROUGH.implied_vol(np.exp([-e, e]), tau)
+        skews.append((v[1] - v[0]) / (2 * e))
+    slope = np.diff(np.log(np.abs(skews)))[0] / np.diff(np.log(taus))[0]
+    assert -0.45 < slope < -0.38  # H - 1/2 = -0.4
+    assert skews[0] < skews[1] < 0
