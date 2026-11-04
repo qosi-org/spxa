@@ -187,6 +187,8 @@ the running library. All signatures are exact.
    - [SSVI & eSSVI](#ssvi-essvi)
    - [Calibration](#calibration)
    - [Diagnostics, Interpolation & Distributions](#diagnostics-interpolation-distributions)
+   - [Surfaces from Quotes](#surfaces-from-quotes)
+   - [The Surface Object, Deltas & Risk](#the-surface-object-deltas-risk)
 
 ---
 
@@ -5182,3 +5184,21 @@ Arbitrage-free implied-volatility slices and surfaces in log-forward moneyness $
 - `wing_asymptotics(slice, k_far=1e4)` returns `WingAsymptotics(left_slope, right_slope)` with `left_moment`, `right_moment`, `left_decay`, `right_decay` and `satisfies_lee_bound`. Also `lee_moment_from_slope(beta)`, `lee_slope_from_moment(x)` and `rogers_tehranchi_slope(slice, k=None)`.
 - `PriceInterpolatedSurface(expiries, slices)` with `theta(t)`, `bucket(t)`, `otm_price(k, t)`, `call_price(k, t)`, `total_variance(k, t)`, `implied_vol(k, t)` and `density(k, t)`.
 - `ImpliedDistribution(slice, k_min=None, k_max=None)` with `pdf`, `cdf`, `survival`, `digital_call`, `digital_put`, `expectation(f, points=None)`, `total_mass`, `forward_ratio`, `moment(n)`, `call(k)`, `quantile(u)` and `sample(n, rng=None, grid=4001)`.
+- `VarianceInterpolatedSurface(expiries, slices, mode="fixed_k"|"normalised")` with `theta(t)`, `total_variance(k, t)` and `implied_vol(k, t)`; both modes extrapolate beyond the last expiry.
+
+### Surfaces from Quotes
+- `build_vol_surface(quotes, method="svi"|"essvi"|"ssvi", weights="uniform"|"vega"|"spread", spot=None, min_quotes=5, **fit_kwargs)` takes an `OptionSurfaceQuotes` and returns a `SurfaceBuild(surface, method, expiries, forwards, discounts, ks, ws, weights, fit, parity)` with `vol_rmse`, `model_total_variance` and `quality(tol=1e-8, points=401)`. The quality report is a `SurfaceQuality(expiries, calendar_free, worst_calendar)` of `ExpiryQuality` rows (`n_quotes`, `vol_rmse`, `max_vol_error`, `atm_vol`, `atm_skew`, `min_g`, `butterfly_free`), with `arbitrage_free`, `worst_vol_error` and `table()`.
+- `ForwardTermStructure(expiries, forwards, discounts, spot=None)` with `forward(t)` and `discount(t)`; `chain_total_variance(chain, forward, discount, weights="uniform")` returns `(k, w, weights)`.
+- `repair_call_prices(strikes, prices, forwards, discounts, weights=None, bid=None, ask=None)` returns a `RepairResult(prices, perturbation, l1, violations_before, violations_after)`; `call_arbitrage_constraints(strikes, forwards)` exposes the linear constraints as an `ArbitrageConstraints`.
+- `fengler_smooth(strikes, calls, forward, discount=1.0, expiry=None, smoothing=1e-6, weights=None, upper=None)` returns a `FenglerSmile` with `price`, `normalised`, `implied_vol`, `density` and `roughness`. `fengler_surface(expiries, strikes, calls, forwards, discounts, smoothing=1e-6)` returns a `FenglerSurface` with `slice(T)` and `calendar_violation(points=401)`; `spline_matrices` and `spline_eval_matrix` are the underlying natural-spline algebra.
+
+### The Surface Object, Deltas & Risk
+- `VolSurface(model, forward)` and the constructors `VolSurface.from_slices(expiries, slices, forward, time_interpolation="price"|"fixed_k"|"normalised")`, `VolSurface.flat(sigma, forward)` and `VolSurface.from_spot(model, spot, rate, dividend_yield=None)`.
+  - Pricing: `price(K, T, option="call")`, `implied_vol(K, T)`, `implied_vol_k`, `total_variance`, `smile(T, strikes)`, `atm_vol(T)` and `atm_skew(T)`.
+  - Forward variance: `forward_variance(T1, T2, k=0.0)`, `forward_vol` and `forward_variance_grid(expiries, k)`.
+  - Greeks: `greeks(K, T, option="call", dynamics="sticky_strike"|"sticky_moneyness", bump=1e-4)`, `delta(K, T, option, kind="forward"|"spot", premium_adjusted=False)` and `strike_from_delta(delta, T, ...)`.
+  - Simulation: `terminal_distribution(T)` and `sample_terminal(T, n, rng=None)`.
+  - Bumps: `bumped(bump)`.
+- `black_delta(F, K, T, sigma, option="call", kind="forward", premium_adjusted=False, carry=1.0)`, `strike_from_delta(delta, F, T, sigma, ...)` (`sigma` may be a smile $k \mapsto \sigma(k)$) and `atm_dns_strike(F, T, sigma, premium_adjusted=False)`.
+- Bumps: `parallel_bump(size)`, `skew_bump(size)`, `expiry_buckets(pillars, size)` and `BumpedModel(base, bump)`. `bucketed_vega(value, surface, bumps, size)` returns the central-difference vega for each bump.
+- Persistence: `to_dict(obj)`, `from_dict(d)`, `dumps(obj, **json_kwargs)` and `loads(s)` for surfaces, total-variance models, forwards and yield curves (bit-exact JSON round trips).
