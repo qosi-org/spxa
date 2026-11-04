@@ -496,3 +496,34 @@ class TestRoughVolatility:
             and round(100 * joint.rmse("futures"), 1) == 2.0
         )
         assert round(joint.model.xi, 2) == 1.66
+
+
+class TestMartingaleTransport:
+    def test_bounds_numbers(self) -> None:
+        from tests.unit.vol.test_mot import MU, NU, straddle
+
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$[0.0507, 0.1389]$",
+            "Black–Scholes value $0.1127$",
+            "$[0.0466, 0.2721]$",
+            "($4.76 \\times 10^{-5}$",
+        ):
+            assert s in text, s
+        lo, hi = v.mot_bounds(MU, NU, straddle)
+        assert (round(lo, 4), round(hi, 4)) == (0.0507, 0.1389)
+        bs = 2 * (2 * NormalDist().cdf(0.2 * math.sqrt(0.5) / 2) - 1)
+        assert round(bs, 4) == 0.1127
+        ot = (v.ot_solve(MU, NU, straddle, "min").value, v.ot_solve(MU, NU, straddle, "max").value)
+        assert (round(ot[0], 4), round(ot[1], 4)) == (0.0466, 0.2721)
+        # the truncated put value: tests/unit/vol/test_marginals.py::test_surface_marginals_from_ssvi
+
+    def test_sinkhorn_gaps(self) -> None:
+        from tests.unit.vol.test_mot import MU, NU, straddle
+
+        text = DOC.read_text(encoding="utf-8")
+        assert "$3.0 \\times 10^{-3}$ at $\\varepsilon = 10^{-2}$" in text
+        assert "$2.0 \\times 10^{-4}$ at $\\varepsilon = 3 \\times 10^{-3}$" in text
+        hi = v.mot_solve(MU, NU, straddle).value
+        gaps = [hi - v.mot_sinkhorn(MU, NU, straddle, eps=e).value for e in (1e-2, 3e-3)]
+        assert [f"{g:.1e}" for g in gaps] == ["3.0e-03", "2.0e-04"]

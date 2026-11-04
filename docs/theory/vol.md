@@ -21,6 +21,7 @@
 | Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `calibrate_leverage_particles`, `slv_paths`, `SLVPDE`, `calibrate_slv`, `as_local_vol` |
 | Rough Heston | `RoughHeston`, `fractional_riccati`, `LiftedHeston`, `lifted_weights`, `calibrate_rough_heston`, `RoughHestonFit` |
 | Rough Bergomi and VIX | `rbergomi_paths`, `RBergomiPaths`, `calibrate_rbergomi`, `RBergomiVIX`, `HestonVIX`, `VIX_WINDOW`, `calibrate_heston_joint`, `SmileQuote`, `VIXQuote` |
+| Martingale optimal transport | `DiscreteMarginal`, `marginal_from_calls`, `surface_marginals`, `mot_solve`, `mot_bounds`, `ot_solve`, `MOTResult`, `mot_sinkhorn`, `SinkhornResult` |
 
 ---
 
@@ -348,3 +349,23 @@ In Heston, $E_T[v_u]$ is affine in $v_T$, so $\mathrm{VIX}_T^2 = av_T + b$ with 
 ### 10.6 Joint SPX/VIX calibration
 
 `calibrate_heston_joint` fits Heston to SPX smiles (`SmileQuote`), VIX futures and VIX option smiles (`VIXQuote`) together, with a weight per block. With consistent quotes it recovers the parameters. The interesting case is the market's: take SPX smiles and VIX futures from one Heston model, and give the VIX options an upward skew of $+0.4$ per unit of log-moneyness. An SPX-only fit is exact on SPX and on the futures, but misses the VIX smile by $17$ vol points RMS. The joint fit cuts that to $3.6$ vol points, at the cost of $2.0$ vol points on SPX and $2.0$ VIX points on the futures. It does this by raising the vol of variance to $\xi = 1.66$, far beyond the Feller condition, so that mass piles up near zero variance. This is the SPX/VIX joint calibration problem: models that price SPX options well disagree with VIX options. It is a standard argument for rough and path-dependent volatility models.
+
+## 11. Martingale optimal transport
+
+### 11.1 Marginals and the convex order
+
+A smile at one expiry fixes the law of $X = S_T/F_T$ (§5). For two expiries $T_1 < T_2$, the laws $\mu$ of $X$ and $\nu$ of $Y = S_{T_2}/F_{T_2}$ are all that vanillas reveal about the joint law of $(X, Y)$. Absence of arbitrage adds one constraint: $(X, Y)$ is a martingale, $E[Y \mid X] = X$. Strassen's theorem says a martingale coupling exists if and only if $\mu \le_{cx} \nu$, that is, the means are equal and every call is worth at least as much at $T_2$ as at $T_1$. This is the calendar condition of §1. `marginal_from_calls` builds the law on an even strike grid whose call function is the linear interpolant of the quotes. Its weights are second differences of the prices. Truncating the grid loses the tails, and an exponential tilt $p_i e^{\beta k_i}$ restores the unit mean exactly. Rounding-level calendar violations are repaired by flooring the later calls with the earlier ones: a maximum of convex functions is convex. `surface_marginals` does this for a whole surface. The grid must cover the tails. On the SSVI surface of §8, a grid that stops at $k = 0.2$ loses the put value below it ($4.76 \times 10^{-5}$ at one year).
+
+### 11.2 Bounds by linear programming
+
+The model-free price interval of a claim $c(X, Y)$ is the minimum and maximum of $E_\pi[c]$ over martingale couplings $\pi \in \mathcal M(\mu, \nu)$. On grids this is a linear programme. `mot_solve` solves it with HiGHS. Its dual is the cheapest superhedge,
+
+$$
+\varphi(x) + \psi(y) + h(x)(y - x) \ge c(x, y),
+$$
+
+with no duality gap (Beiglböck, Henry-Labordère & Penkner): vanillas $\varphi$ on $T_1$ and $\psi$ on $T_2$, plus $h(X)$ units of the forward from $T_1$ to $T_2$. For a forward-start straddle $|Y - X|$ between flat 20% smiles at $0.5$ and $1$ year, `mot_bounds` gives $[0.0507, 0.1389]$, which contains the Black–Scholes value $0.1127$. Dropping the martingale constraint, classical optimal transport (`ot_solve`) gives the much wider $[0.0466, 0.2721]$. A claim $\varphi(X) + \psi(Y) + g(X)(Y - X)$ is replicated by vanillas and the forward, so its interval has zero width. The same holds for $(Y - X)^2$ and the forward log contract $\log Y - \log X$. HiGHS presolve has to be switched off, because tail weights of $10^{-14}$ make it report infeasibility.
+
+### 11.3 Entropic transport
+
+Penalising the plan with $\varepsilon\,\mathrm{KL}(\pi \,\|\, \mu\otimes\nu)$ gives a Gibbs-form solution, $\pi_{ij} \propto \mu_i\nu_j\exp\bigl((c_{ij} - a_i - b_j - h_i(y_j - x_i))/\varepsilon\bigr)$. `mot_sinkhorn` finds the potentials by alternating closed-form log-sum-exp updates for $a$ and $b$ with Newton steps on each row's martingale condition for $h$, and decreases $\varepsilon$ geometrically with warm starts. Each iteration costs $O(nm)$ and needs no LP solver. The plans are feasible, so their values approach the LP bounds from inside. For the straddle above, the gap to the upper bound is $3.0 \times 10^{-3}$ at $\varepsilon = 10^{-2}$ and $2.0 \times 10^{-4}$ at $\varepsilon = 3 \times 10^{-3}$.
