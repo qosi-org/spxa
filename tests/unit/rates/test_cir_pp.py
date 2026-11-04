@@ -79,9 +79,41 @@ def test_caplets_reduce_to_forward_intrinsic_at_low_vol() -> None:
     assert CIRPlusPlus(DISC, 0.3, 0.025, 0.1, 0.02).cap(cap, PROJ) > m.cap(cap, PROJ)
 
 
+def test_swaptions_by_jamshidian_match_integration_and_parity() -> None:
+    from spxa.rates.swaptions import swaption
+
+    m = CIRPlusPlus(DISC, 0.3, 0.025, 0.08, 0.02)
+    for K in (0.03, 0.034, 0.04):
+        pay = swaption(REF, "2Y", "5Y", K, notional=1e6)
+        rec = swaption(REF, "2Y", "5Y", K, notional=1e6, payer=False)
+        vp = m.swaption(pay, PROJ)
+        assert vp == pytest.approx(m.swaption(pay, PROJ, method="integral"), rel=1e-8)
+        assert vp - m.swaption(rec, PROJ) == pytest.approx(pay.swap.pv(DISC, PROJ), abs=1e-6)
+
+
+def test_forward_measure_law_prices_bonds() -> None:
+    # E^T[P(T, S)] = P(0, S) / P(0, T)
+    T, S = 3.0, 8.0
+    scale, df, nc = M.forward_measure_law(T)
+    val = quad(
+        lambda z: float(M.discount_bond(T, S, scale * z)) * float(ncx2.pdf(z, df, nc)),
+        0,
+        np.inf,
+        epsabs=0,
+        epsrel=1e-12,
+    )[0]
+    assert val == pytest.approx(CURVE.discount(S) / CURVE.discount(T), rel=1e-11)
+
+
 def test_validation() -> None:
     with pytest.raises(ValueError):
         CIRPlusPlus(CURVE, 0.3, 0.025, 0.0, 0.02)
     with pytest.raises(ValueError):
         M.zcb_option(3.0, 2.0, 0.9)
+    from spxa.rates.swaptions import swaption
+
+    with pytest.raises(ValueError):
+        CIRPlusPlus(DISC, 0.3, 0.025, 0.08, 0.02).swaption(
+            swaption(REF, "2Y", "5Y", 0.03), PROJ, method="x"
+        )
     assert M.feller and not CIRPlusPlus(CURVE, 0.1, 0.01, 0.2, 0.01).feller
