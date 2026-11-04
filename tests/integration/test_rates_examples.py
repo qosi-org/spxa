@@ -43,3 +43,15 @@ def test_short_rate_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "CIR++       27.48  46.42  57.09" in out
     assert "within 4 standard errors: True" in out
     assert "nan" not in out and ": False" not in out
+
+
+def test_hjm_cheyette_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "rates_hjm_cheyette_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "closed form 0.018159" in out
+    assert "MC agrees with Black at the scheme's variance: True" in out
+    assert "sigma levels: 0.00994 0.00929 0.00842  beta 0.2360" in out
+    assert "max vol error 1.77 bp" in out
+    assert "PDE within 1.5 bp of the quotes: True" in out
+    assert "European 0.003784, American 0.010735" in out
+    assert "nan" not in out and ": False" not in out
