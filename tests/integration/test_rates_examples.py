@@ -70,3 +70,16 @@ def test_lmm_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert out.count("within 3 SE: True") == 2
     assert "prices within 3 SE + 1%: True" in out
     assert "nan" not in out and ": False" not in out
+
+
+def test_bermudan_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "rates_bermudan_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "sigma levels:   0.00987 0.00894 0.00835 0.00769 0.00706" in out
+    assert "Europeans reprice (< 1e-8): True" in out
+    assert "Bermudan on the PDE 260.84; largest European 214.67, sum 762.37" in out
+    assert "LSM lower bound 261.09 +- 0.68, dual upper bound 261.19" in out
+    assert "PDE inside the bounds (3 SE): True" in out
+    assert "tree with 1400 steps: 245.675" in out and "PDE: 245.674" in out
+    assert "beta 0.3: PDE 246.17 (switch value 52.81)" in out
+    assert "nan" not in out and ": False" not in out
