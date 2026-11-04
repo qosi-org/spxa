@@ -78,7 +78,11 @@ Swaptions
 SABR
     :class:`SABR`, :func:`sabr_lognormal_vol`, :func:`sabr_normal_vol` (Hagan 2002 or Obłój, optional shift);
     :func:`calibrate_sabr` and :func:`alpha_from_atm`.
+Arbitrage-free SABR
+    :class:`ArbitrageFreeSABR` (Hagan et al. 2014 density PDE, Lawson–Swayne steps) and :class:`SABRDensity`.
 """
+
+from spxa.rates.sabr_pde import ArbitrageFreeSABR, SABRDensity
 
 from spxa.rates.sabr import (
     SABR,
@@ -370,4 +374,6 @@ __all__ = [
     "SABRFit",
     "alpha_from_atm",
     "calibrate_sabr",
+    "ArbitrageFreeSABR",
+    "SABRDensity",
 ]
