@@ -37,15 +37,18 @@ zero-coupon and year-on-year ratios are therefore Black formulas.
 
 from __future__ import annotations
 
+import itertools
 import math
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Sequence
 
 import numpy as np
+from scipy.optimize import least_squares
 
 from spxa.market.black import black_price
 from spxa.market.curves import YieldCurve
 
-__all__ = ["JarrowYildirim"]
+__all__ = ["InflationOptionQuote", "JYFit", "JarrowYildirim", "calibrate_jarrow_yildirim"]
 
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(64)
 
@@ -181,3 +184,97 @@ class JarrowYildirim:
         F = self.yoy_forward(T1, t2)
         v = math.sqrt(self.log_ratio_variance(T1, t2))
         return float(black_price(F, 1.0 + strike, 1.0, v, float(self.nominal.discount(t2)), option))
+
+
+@dataclass(frozen=True)
+class InflationOptionQuote:
+    """A YoY caplet (``start`` < ``end``) or, with ``start`` = 0, a zero-coupon cap or floor."""
+
+    start: float
+    end: float
+    strike: float
+    price: float
+    option: str = "call"
+    kind: str = "yoy"
+
+
+@dataclass(frozen=True)
+class JYFit:
+    model: "JarrowYildirim"
+    parameters: dict[str, float]
+    rmse: float
+    success: bool
+
+
+def _quote_price(m: "JarrowYildirim", q: InflationOptionQuote) -> float:
+    if q.kind == "zc":
+        return m.zero_coupon_caplet(q.end, q.strike, q.option)
+    return m.yoy_caplet(q.start, q.end, q.strike, q.option)
+
+
+def calibrate_jarrow_yildirim(
+    model: "JarrowYildirim",
+    quotes: Sequence[InflationOptionQuote],
+    parameters: Sequence[str] = ("sigma_i", "sigma_r"),
+    starts: Sequence[float] = (1.0 / 3.0, 1.0, 3.0),
+) -> JYFit:
+    """Fit the named parameters (others held at ``model``'s values) to option prices by least squares.
+
+    Rate parameters usually come from nominal and real swaptions; the index
+    volatility, and with year-on-year options the real-rate volatility, from
+    inflation caps. The objective has local minima in the real-rate volatility
+    (it enters through the correlations), so the search starts from every
+    combination of ``starts`` times the initial mean reversions and volatilities
+    and keeps the best fit.
+    """
+    allowed = ("a_n", "sigma_n", "a_r", "sigma_r", "sigma_i", "rho_nr", "rho_ni", "rho_ri")
+    if not parameters or any(p not in allowed for p in parameters):
+        raise ValueError(f"parameters must be among {allowed}")
+    base = {p: getattr(model, p) for p in allowed}
+    lo = [
+        1e-4 if p.startswith("a_") else (-0.99 if p.startswith("rho") else 0.0) for p in parameters
+    ]
+    hi = [5.0 if p.startswith("a_") else (0.99 if p.startswith("rho") else 1.0) for p in parameters]
+    x0 = np.clip([base[p] for p in parameters], np.array(lo) + 1e-8, np.array(hi) - 1e-8)
+    prices = np.array([q.price for q in quotes])
+    scale = np.maximum(np.abs(prices), 1e-6)
+
+    def build(x: np.ndarray) -> "JarrowYildirim":
+        return JarrowYildirim(
+            model.nominal,
+            model.real,
+            model.cpi0,
+            **{**base, **dict(zip(parameters, map(float, x)))},
+        )
+
+    def resid(x: np.ndarray) -> np.ndarray:
+        try:
+            m = build(x)
+        except ValueError:
+            return np.full(prices.size, 1e3)
+        return (np.array([_quote_price(m, q) for q in quotes]) - prices) / scale
+
+    sol = None
+    grids = [starts if not p.startswith("rho") else (1.0,) for p in parameters]
+    for factors in itertools.product(*grids):
+        x = np.clip(x0 * np.asarray(factors), np.array(lo) + 1e-8, np.array(hi) - 1e-8)
+        trial = least_squares(
+            resid,
+            x,
+            bounds=(lo, hi),
+            x_scale=np.maximum(np.abs(x), 1e-3),
+            xtol=1e-14,
+            ftol=1e-14,
+            gtol=1e-14,
+        )
+        if sol is None or trial.cost < sol.cost:
+            sol = trial
+    assert sol is not None
+    fitted = build(sol.x)
+    err = np.array([_quote_price(fitted, q) for q in quotes]) - prices
+    return JYFit(
+        fitted,
+        dict(zip(parameters, map(float, sol.x))),
+        float(np.sqrt(np.mean(err**2))),
+        bool(sol.success),
+    )

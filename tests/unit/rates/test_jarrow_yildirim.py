@@ -8,7 +8,11 @@ import numpy as np
 import pytest
 
 from spxa.market.curves import FlatCurve
-from spxa.rates.jarrow_yildirim import JarrowYildirim
+from spxa.rates.jarrow_yildirim import (
+    InflationOptionQuote,
+    JarrowYildirim,
+    calibrate_jarrow_yildirim,
+)
 from spxa.rates.jy_mc import jy_paths
 
 NOMINAL, REAL = FlatCurve(0.03), FlatCurve(0.01)
@@ -141,3 +145,29 @@ def test_caplets_against_monte_carlo() -> None:
     check(
         paths.discount[:, c] * np.maximum(growth - 1.02**10, 0.0), JY.zero_coupon_caplet(10.0, 0.02)
     )
+
+
+def test_calibration_recovers_volatilities() -> None:
+    quotes = [
+        InflationOptionQuote(t - 1, t, k, JY.yoy_caplet(t - 1, t, k))
+        for t in (1, 2, 3, 5, 7, 10)
+        for k in (0.01, 0.03)
+    ]
+    floors = [
+        InflationOptionQuote(0, t, 0.0, JY.zero_coupon_caplet(t, 0.0, "put"), "put", "zc")
+        for t in (5, 10)
+    ]
+    start = JarrowYildirim(NOMINAL, REAL, 100.0, **{**PARAMS, "sigma_i": 0.02, "sigma_r": 0.003})
+    fit = calibrate_jarrow_yildirim(start, quotes + floors)
+    assert fit.success and fit.rmse < 1e-14
+    assert fit.parameters == pytest.approx({"sigma_i": 0.012, "sigma_r": 0.008}, abs=1e-12)
+    # from a single start the search stalls in a local minimum of the real-rate volatility
+    stuck = calibrate_jarrow_yildirim(start, quotes + floors, starts=(1.0,))
+    assert stuck.rmse > 1e-4 and stuck.parameters["sigma_r"] < 0.002
+    # zero-coupon floors alone pin the index volatility when the rate parameters are known
+    zc = calibrate_jarrow_yildirim(
+        JarrowYildirim(NOMINAL, REAL, 100.0, **{**PARAMS, "sigma_i": 0.02}), floors, ("sigma_i",)
+    )
+    assert zc.parameters["sigma_i"] == pytest.approx(0.012, abs=1e-12)
+    with pytest.raises(ValueError):
+        calibrate_jarrow_yildirim(start, floors, ("kappa",))
