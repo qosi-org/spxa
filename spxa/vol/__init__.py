@@ -66,7 +66,11 @@ Local volatility
 Andreasen–Huge
     :class:`AndreasenHugeSurface`: one implicit Dupire step per expiry, arbitrage-free by construction;
     :func:`calibrate_andreasen_huge` fits the levels expiry by expiry.
+Local-vol Monte Carlo
+    :func:`local_vol_paths` (log-Euler) and :class:`LocalVolPaths`.
 """
+
+from spxa.vol.local_vol_mc import LocalVolPaths, local_vol_paths
 
 from spxa.vol.andreasen_huge import (
     AndreasenHugeFit,
@@ -246,4 +250,6 @@ __all__ = [
     "piecewise_constant_vol",
     "AndreasenHugeFit",
     "calibrate_andreasen_huge",
+    "LocalVolPaths",
+    "local_vol_paths",
 ]
