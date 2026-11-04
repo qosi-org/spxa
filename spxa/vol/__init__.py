@@ -121,6 +121,7 @@ from spxa.vol.robust import (
     forward_start_straddle,
     robust_bounds,
     static_replication,
+    superhedge_pnl,
 )
 
 from spxa.vol.mot_sinkhorn import (
@@ -454,5 +455,6 @@ __all__ = [
     "forward_start_straddle",
     "robust_bounds",
     "static_replication",
+    "superhedge_pnl",
     "mot_multi",
 ]

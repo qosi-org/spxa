@@ -31,6 +31,7 @@ __all__ = [
     "forward_start_straddle",
     "robust_bounds",
     "static_replication",
+    "superhedge_pnl",
 ]
 
 Payoff = Callable[[np.ndarray, np.ndarray], np.ndarray]
@@ -93,3 +94,21 @@ def static_replication(points: Any, values: Any) -> StaticReplication:
     slopes = np.diff(f) / np.diff(k)
     kinks = np.diff(slopes)
     return StaticReplication(float(f[0] - slopes[0] * k[0]), float(slopes[0]), k[1:-1], kinks)
+
+
+def superhedge_pnl(result: MOTResult, payoff: Payoff, x: Any, y: Any) -> np.ndarray:
+    r"""Pathwise hedge minus payoff, :math:`\varphi(x) + \psi(y) + h(x)(y - x) - c(x, y)`.
+
+    Off the grid, the potentials are interpolated linearly, as traded by the
+    call strips of :func:`static_replication`. For an upper bound the result is
+    non-negative on the grid. Between nodes it can dip by an amount of the order
+    of the grid spacing times the payoff's curvature. For a lower bound the
+    sign is reversed.
+    """
+    xx, yy = np.asarray(x, float), np.asarray(y, float)
+    phi = np.interp(xx, result.mu.points, result.phi)
+    h = np.interp(xx, result.mu.points, result.h)
+    psi = np.interp(yy, result.nu.points, result.psi)
+    hedge = phi + psi + h * (yy - xx)
+    pnl = hedge - payoff(xx, yy)
+    return pnl if result.sense == "max" else -pnl
