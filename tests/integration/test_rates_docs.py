@@ -524,3 +524,34 @@ class TestHJMAndCheyette:
             for b in (0.0, 0.3)
         ]
         assert [round(s, 2) for s in skews] == [0.04, 1.21]
+
+
+class TestMarketModels:
+    TIMES = np.arange(1.0, 11.01, 0.5)
+    VOL = r.AbcdVol(0.05, 0.09, 0.44, 0.11)
+    RHO = r.rebonato_correlation(np.arange(1.0, 10.51, 0.5), 0.1, 0.4)
+
+    def test_section_numbers_in_text(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$\\tau = 1/c - a/b$, which is $1.72$ years",
+            "largest correlation error of $0.089$",
+            "2Y×5Y volatility of $17.84\\%$, at an ATM swap rate of $3.02\\%$",
+            "between $18.3\\%$ and $19.7\\%$",
+            "would be $18.66\\%$",
+        ):
+            assert s in text, s
+
+    def test_lmm_numbers(self) -> None:
+        assert round(1 / 0.44 - 0.05 / 0.09, 2) == 1.72
+        taus = np.linspace(0.0, 10.0, 100001)
+        assert taus[np.argmax(self.VOL(taus))] == pytest.approx(1.72, abs=0.005)
+        _, rho3 = r.reduce_rank(self.RHO, 3)
+        assert round(float(np.abs(rho3 - self.RHO).max()), 3) == 0.089
+        m = r.LiborMarketModel(CURVE, self.TIMES, self.VOL, correlation=self.RHO)
+        assert round(m.swaption_vol(2, 12) * 100, 2) == 17.84
+        assert round(m.swap_weights(2, 12)[1] * 100, 2) == 3.02
+        caps = [m.caplet_vol(i) * 100 for i in range(2, 12)]
+        assert (round(min(caps), 1), round(max(caps), 1)) == (18.3, 19.7)
+        flat = r.LiborMarketModel(CURVE, self.TIMES, self.VOL)
+        assert round(flat.swaption_vol(2, 12) * 100, 2) == 18.66

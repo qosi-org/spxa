@@ -30,6 +30,7 @@
 | Model interface | `ShortRateModel`, `model_price`, `model_implied_vols` |
 | Gaussian HJM | `GaussianHJM`, `exponential_vol`, `hump_vol`, `hjm_paths` |
 | Cheyette | `Cheyette`, `cheyette_paths`, `CheyettePDE`, `cheyette_swaption`, `swap_rate_dynamics`, `calibrate_cheyette` |
+| LIBOR market model | `LiborMarketModel`, `AbcdVol`, `exponential_correlation`, `rebonato_correlation`, `reduce_rank`, `lmm_paths`, `LMMPaths`, `calibrate_lmm`, `fit_abcd`, `LMMCalibration` |
 
 ---
 
@@ -388,3 +389,37 @@ with $G = (1 - e^{-\kappa(T - t)})/\kappa$. `Cheyette` uses the linear local vol
 ### 10.5 Swaptions and calibration
 
 `cheyette_swaption` follows Andersen & Piterbarg's projection. Freezing $y$ at $\bar y(t)$, the swap-rate volatility $S_x\sigma_r$ is linearised into a displaced diffusion $\lambda(t)(b(t)S + (1 - b(t))S_0)$. The skew is averaged with weights $\lambda^2(t)\int_0^t\lambda^2$ (Piterbarg), and the swaption is priced in displaced Black. For a 2Y×5Y swaption with $\kappa = 0.05$ and $\sigma = 1\%$ on the flat 3% curve, the averaged skew is $\bar b = 0.04$ at $\beta = 0$ and $1.21$ at $\beta = 0.3$. With $\beta = 0.3$ the PDE gives normal vols of $70.6$, $85.9$ and $100.7$ bp at strikes $2.5\%$, $3.46\%$ and $4.5\%$, and the approximation gives $71.0$, $86.5$ and $101.5$ bp, within 1 bp across the smile. With $\beta = 0$ the same strikes are nearly flat, at $86.7$, $87.1$ and $87.6$ bp. `calibrate_cheyette` fits one $\sigma$ level per expiry, plus $\beta$, to a grid of strikes at each expiry using this formula.
+
+## 11. LIBOR and forward market models
+
+### 11.1 Parametrisation
+
+The LIBOR market model (Brace, Gątarek & Musiela; Jamshidian) takes the simply compounded forwards $L_i$ on a tenor structure $T_0 < \dots < T_n$ as its state. Each one is lognormal under its own payment measure, possibly displaced by $\delta$:
+
+$$
+dL_i = \sigma_i(t)\,(L_i + \delta)\,dW_i^{T_{i+1}}, \qquad d\langle W_i, W_j\rangle = \rho_{ij}\,dt,
+$$
+
+so caplets are Black formulas, exactly as quoted. `LiborMarketModel` uses Rebonato's time-homogeneous shape $\sigma_i(t) = k_i f(T_i - t)$ with $f(\tau) = (a + b\tau)e^{-c\tau} + d$ (`AbcdVol`). Its hump sits at $\tau = 1/c - a/b$, which is $1.72$ years for $(a, b, c, d) = (0.05, 0.09, 0.44, 0.11)$. `AbcdVol.covariance` integrates $f(T_i - t)f(T_j - t)$ in closed form. The correlation is `exponential_correlation`, $e^{-\beta|T_i - T_j|}$, or Rebonato's `rebonato_correlation`, $\rho_\infty + (1 - \rho_\infty)e^{-\beta|T_i - T_j|}$. `reduce_rank` keeps its leading principal components and renormalises the diagonal. On 20 semi-annual forwards with $\beta = 0.1$ and $\rho_\infty = 0.4$, three factors leave a largest correlation error of $0.089$.
+
+### 11.2 Simulation
+
+`lmm_paths` simulates the log displaced forwards under the spot LIBOR measure, whose numeraire rolls over the shortest bond. Forward $i$ then has drift
+
+$$
+\sigma_i\sum_{j = q(t)}^{i}\frac{\tau_j\rho_{ij}\sigma_j(L_j + \delta)}{1 + \tau_j L_j},
+$$
+
+summed over the forwards still alive. Each step draws Gaussian increments with the exact integrated covariance of the step, so only the drift is discretised. It is either frozen at the start of the step or averaged with a predicted end value (predictor–corrector). The deflator $P(0, T_0)/\prod_{j<k}(1 + \tau_j L_j(T_j))$ prices any payoff fixed on the tenor dates. Deflated bonds are martingales, and caplets reproduce Black within Monte Carlo error.
+
+### 11.3 Swaptions and calibration
+
+The forward swap rate over $[T_\alpha, T_\beta]$ is a weighted average $S = \sum_i w_i L_i$, with $w_i = \tau_i P(0, T_{i+1})/A$. Freezing the weights and the forwards gives Rebonato's formula (`LiborMarketModel.swaption_vol`):
+
+$$
+\sigma_{\alpha\beta}^2 T_\alpha = \frac{1}{(S + \delta)^2}\sum_{i, j = \alpha}^{\beta - 1} w_i w_j (L_i + \delta)(L_j + \delta)\,\rho_{ij}\int_0^{T_\alpha}\sigma_i\sigma_j\,dt.
+$$
+
+The swaption is then Black on the annuity. On the flat 3% curve, the abcd shape above with the Rebonato correlation gives a 2Y×5Y volatility of $17.84\%$, at an ATM swap rate of $3.02\%$. Its caplets carry between $18.3\%$ and $19.7\%$. With perfect correlation the swaption volatility would be $18.66\%$. Simulation agrees with the formula within Monte Carlo error (three standard errors plus 1%) at strikes of 2.5%, ATM and 4%.
+
+`calibrate_lmm` calibrates in two stages. `fit_abcd` fits the shape to the caplet volatilities, and the $k_i$ then make every caplet exact. The correlation parameters $(\beta, \rho_\infty)$ are fitted to swaption volatilities through Rebonato's formula, so no simulation is needed.
