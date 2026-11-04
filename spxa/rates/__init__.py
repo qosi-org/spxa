@@ -71,7 +71,11 @@ Forward spreads
     :class:`ForwardSpread`, :func:`turn_of_year`,
     :class:`SpreadAdjustedCurve`; bootstrapping takes ``spreads=`` to fit
     the smooth curve under a known turn.
+Caps and floors
+    :class:`Caplet`, :class:`CapFloor`, :func:`cap_floor` (Black, Bachelier or shifted Black; flat implied vol).
 """
+
+from spxa.rates.capfloor import CapFloor, Caplet, cap_floor
 
 from spxa.rates.bonds import BondCashflow, FixedRateBond
 from spxa.rates.bootstrap import (
@@ -336,4 +340,7 @@ __all__ = [
     "PnLExplain",
     "node_gamma",
     "pnl_explain",
+    "CapFloor",
+    "Caplet",
+    "cap_floor",
 ]
