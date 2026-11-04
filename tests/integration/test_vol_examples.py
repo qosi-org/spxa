@@ -104,3 +104,18 @@ def test_model_risk_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "vol swap         0.2167   0.2248   0.0080   True" in out
     assert "[0.0271, 0.0735]: family inside True, share 6%" in out
     assert "nan" not in out
+
+
+def test_vol_rates_risk_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "vol_rates_risk_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "10Y annual par rate 2.6172%" in out
+    assert "d rate / d 10Y zero +0.9287" in out
+    assert "T=0.25 ATM 17.71%  90% 21.00%  110% 17.13%" in out
+    assert "largest SVI misfit 12.4 bp" in out
+    assert "put 13,656   swap -2,943   swap DV01 8,934" in out
+    assert "LEHMAN_2008                 176,832   -1,969,548   -1,792,716" in out
+    assert "INFLATION_SHOCK_2022         51,029    2,657,839    2,708,868" in out
+    assert "price 136.5560  delta -0.22480  vega 1430.72" in out
+    assert "matches the risk adapter: True" in out
+    assert "nan" not in out and "False" not in out
