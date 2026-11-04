@@ -95,6 +95,26 @@ class HullWhite:
         """:math:`E^T[x_t] = -B(t, T)\\,y(t)` under the :math:`T`-forward measure (``t <= T``)."""
         return -float(self.B(t, T)) * self.y(t)
 
+    def integrated_variance(self, t: float) -> float:
+        """:math:`\\operatorname{Var}\\bigl(\\int_0^t x_u\\,du\\bigr) = \\int_0^t B(u, t)^2\\sigma(u)^2\\,du`."""
+        a = self.a
+        total = 0.0
+        for u0, u1, s in self._pieces(float(t)):
+            e1 = (np.exp(-a * (t - u1)) - np.exp(-a * (t - u0))) / a
+            e2 = (np.exp(-2 * a * (t - u1)) - np.exp(-2 * a * (t - u0))) / (2 * a)
+            total += s * s * ((u1 - u0) - 2 * e1 + e2) / (a * a)
+        return float(total)
+
+    def mean_x(self, t: float) -> float:
+        """:math:`E^Q[x_t] = \\int_0^t e^{-a(t-u)}\\sigma(u)^2 B(u, t)\\,du`, half the derivative of the integrated variance."""
+        a = self.a
+        total = 0.0
+        for u0, u1, s in self._pieces(float(t)):
+            e1 = (np.exp(-a * (t - u1)) - np.exp(-a * (t - u0))) / a
+            e2 = (np.exp(-2 * a * (t - u1)) - np.exp(-2 * a * (t - u0))) / (2 * a)
+            total += s * s * (e1 - e2) / a
+        return float(total)
+
     def phi(self, t: float) -> float:
         """Deterministic part of the short rate: :math:`f(0, t)`."""
         return float(self.curve.instantaneous_forward(float(t)))

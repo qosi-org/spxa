@@ -92,7 +92,11 @@ Hull-White
     :class:`HullWhite`: one-factor Hull-White fitted to a discount curve, piecewise-constant volatility.
 Model cashflows
     :func:`swap_cashflows`: swaps as discount-curve cashflows under deterministic basis, for model pricing.
+Hull-White simulation
+    :func:`hull_white_paths`: exact joint simulation of the Hull-White state and bank account.
 """
+
+from spxa.rates.hw_mc import HullWhitePaths, hull_white_paths
 
 from spxa.rates.model_cashflows import ModelCashflows, swap_cashflows
 
@@ -409,4 +413,6 @@ __all__ = [
     "HullWhite",
     "ModelCashflows",
     "swap_cashflows",
+    "HullWhitePaths",
+    "hull_white_paths",
 ]
