@@ -18,6 +18,7 @@
 | Local volatility | `dupire_local_variance`, `LocalVolSurface`, `LocalVolGrid`, `bbf_implied_vol` |
 | Andreasen–Huge | `AndreasenHugeSurface`, `calibrate_andreasen_huge`, `AndreasenHugeFit`, `andreasen_huge_grid`, `piecewise_constant_vol` |
 | Local-vol simulation and checks | `local_vol_paths`, `LocalVolPaths`, `local_vol_diagnostics`, `LocalVolDiagnostics` |
+| Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `as_local_vol` |
 
 ---
 
@@ -256,3 +257,28 @@ By Gyöngy's theorem, the marginal laws of the local-vol diffusion are those imp
 
 `local_vol_diagnostics` combines these checks for a given surface. It maps where the local vol is undefined on a (moneyness, time) grid. If it is defined everywhere, it reprices a strike × expiry grid with one forward Dupire solve and reports the implied-vol errors, which shrink as the grid is refined. For an SSVI surface whose $\theta_t = 0.04t - 0.012t^2$ peaks at $t = 5/3$, a 40-step time grid to $t = 2$ first flags undefined points at $t = 1.7$.
 
+## 9. Stochastic local volatility
+
+### 9.1 The model
+
+Local volatility fits every vanilla but implies a forward smile that flattens too quickly. Stochastic volatility has realistic dynamics but cannot fit the whole surface. SLV combines the two. In forward log-moneyness $y = \log(S_t/F_t)$,
+
+$$
+dy = -\tfrac12 L^2(t, y)\,v\,dt + L(t, y)\sqrt v\,dW^1, \qquad dv = \kappa(\theta - v)\,dt + \eta\,\xi\sqrt v\,dW^2, \qquad d\langle W^1, W^2\rangle = \rho\,dt,
+$$
+
+with a Heston variance (`Heston`, priced in forward coordinates by Lewis's integral; in 't Hout and Foulon's case 1 gives $8.8948693600540$) and a leverage function $L$. The *mixing fraction* $\eta \in [0, 1]$ scales the vol-of-variance. By Gyöngy's theorem, the marginals of $y$, and therefore all vanillas, are those of local volatility if and only if
+
+$$
+L^2(t, y)\,E[v_t \mid y_t = y] = \sigma_{LV}^2(t, y).
+$$
+
+The leverage depends on the model's own conditional expectation, so the model is a McKean nonlinear diffusion, and calibrating it means solving for that conditional expectation.
+
+### 9.2 The forward equation
+
+`slv_forward` evolves the joint density $p(t, y, v)$ from a delta at $(0, v_0)$. As in the one-dimensional `FokkerPlanck1D`, the forward operator is the discrete adjoint $W^{-1}A_j^{\mathsf T}W$ of each part of the backward ADI splitting of `spxa.pde`, where $W$ holds the control-volume areas. Every generator row sums to zero, so the mass is conserved to rounding. The degenerate edge $v = 0$ is "natural". The far edges in $y$ and the top of the variance grid are absorbing: with a natural condition on a non-degenerate edge, the adjoint scheme blows up. `slv_grid` clusters variance nodes towards zero, places $v_0$ on a node, and takes the top of the grid at the $1 - 10^{-6}$ non-central chi-square quantile of $v_t$ over the horizon. With $L \equiv 1$ the density reproduces the Heston smile within 5 bp on a $121 \times 61$ grid with 100 steps, and within 1.5 bp on $161 \times 81$ with 200 steps.
+
+### 9.3 Calibration by forward induction
+
+`calibrate_leverage` reads $E[v \mid y]$ from the current density at each step, sets $L^2 = \sigma_{LV}^2/E[v \mid y]$ with the local variance at the step midpoint, and advances the density with that leverage (Ren, Madan & Qian). Where the marginal density is negligible, the conditional expectation is extended flat. Calibrated to the SSVI surface of §8, the model reprices the smile at one year within 5 bp at $\eta = 0.5$ on the $121 \times 61$ grid, and within 2.5 bp at $\eta = 1$ on $161 \times 81$. The local variance must be tabulated finely in $y$ (`as_local_vol` uses 601 points): linear interpolation of a convex function biases the volatility upwards. As a consistency check, feeding the model its own Gyöngy local variance returns $L \equiv 1$ to $10^{-9}$.

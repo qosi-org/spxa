@@ -337,3 +337,22 @@ class TestLocalVolatility:
         )
         assert d.first_undefined_time() == pytest.approx(1.7, abs=1e-12)
         assert "first flags undefined points at $t = 1.7$" in DOC.read_text(encoding="utf-8")
+
+
+class TestStochasticLocalVol:
+    def test_numbers_in_text(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$8.8948693600540$",
+            "within 5 bp on a $121 \\times 61$ grid",
+            "within 1.5 bp on $161 \\times 81$",
+            "within 5 bp at $\\eta = 0.5$",
+            "within 2.5 bp at $\\eta = 1$",
+            "$L \\equiv 1$ to $10^{-9}$",
+        ):
+            assert s in text, s
+
+    def test_heston_reference(self) -> None:
+        m = v.Heston(0.04, 1.5, 0.04, 0.3, -0.9)
+        got = m.price(100.0, 1.0, F=100 * math.exp(0.025), df=math.exp(-0.025))
+        assert round(got, 13) == 8.8948693600540
