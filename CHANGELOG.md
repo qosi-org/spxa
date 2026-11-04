@@ -47,6 +47,45 @@ All notable changes to spxa are documented here. Follows [Keep a Changelog](http
       trees, perpetual put, Lewis with Heston/Lévy characteristic functions, Merton series,
       Vasicek/CIR bonds and options, Margrabe, spread options.
   - **Documentation.** See `docs/theory/pde.md` and section 19 of the API reference.
+- `market/` — market conventions shared by `spxa.rates` and `spxa.vol` (`spxa.market`):
+  - Dates and tenors; day counts `ACT/360`, `ACT/365F`, `ACT/ACT ISDA/ICMA`, the 30/360 family and
+    `BUS/252`; `TARGET`, US, UK and joint calendars with Easter rules.
+  - Business-day adjustment and `Schedule` with front/back, short/long stubs and end-of-month rolls.
+  - `YieldCurve`, `FlatCurve`, `InterpolatedDiscountCurve` and `EquityForward` (dividend yields, repo,
+    escrowed discrete dividends).
+  - Black, Bachelier, shifted-Black and Black–Scholes prices and Greeks; machine-precision implied
+    Black and normal volatilities.
+  - Option quotes and chains, static-arbitrage checks, put-call-parity forwards and implied carry.
+  - See `docs/theory/market.md` and section 20 of the API reference.
+- `rates/` — interest rates on real calendar dates (`spxa.rates`, `spxa.graph.rates`):
+  - **Instruments.** Overnight and term indices with ISDA compounding (lookback, lockout,
+    observation shift); fixed, IBOR and overnight legs; deposits, FRAs, futures with Hull–White
+    convexity; OIS, vanilla, basis and amortising swaps; fixed-rate bonds.
+  - **Curves.** Dual-curve bootstrapping and global fits with log-linear, cubic, monotone cubic and
+    Hagan–West monotone convex interpolation; turns of year, meeting-date curves, Nelson–Siegel–
+    Svensson and curve sets. Node, quote and key-rate deltas, hedging, gamma, P&L explain and PCA.
+  - **Volatility products.** Caps, floors, swaptions (physical and cash) and CMS by replication;
+    SABR (Hagan and Obłój), the arbitrage-free SABR density PDE, SABR Monte Carlo, caplet stripping
+    and a swaption cube.
+  - **Short-rate models.** Hull–White with piecewise volatility (closed forms, exact simulation,
+    trinomial tree, PDE, bootstrap and global calibration), G2++ and its Hull–White two-factor form,
+    Black–Karasinski and CIR++.
+  - **HJM and Cheyette.** Gaussian HJM with exponential and humped volatilities; Cheyette with skew,
+    Monte Carlo, a split 2D PDE (semi-Lagrangian in $y$,
+    Crank–Nicolson in $x$), swaption approximation and calibration.
+  - **Market models.** LIBOR market model with abcd volatilities, Rebonato correlations, rank
+    reduction, predictor–corrector simulation and caplet/swaption calibration; the forward market
+    model for backward-looking rates; SABR-LMM.
+  - **Bermudan swaptions.** Co-terminal contracts valued by PDE, tree and least-squares Monte Carlo,
+    with Andersen–Broadie upper bounds.
+  - **Inflation.** CPI fixings and indices with TIPS reference-CPI interpolation; seasonality
+    estimated from history; inflation curves bootstrapped from zero-coupon swaps; zero-coupon and
+    year-on-year swaps; TIPS-style linkers with Treasury's price and settlement formulas and the
+    deflation floor; Jarrow–Yildirim closed forms, caplets, Monte Carlo and calibration.
+  - **Connections.** `curve_price`/`curve_pricing_fn` value `spxa.risk` swaps on curves for
+    `StressTestingEngine`; `spxa.graph.rates` zero-curve nodes give key rates in one reverse pass.
+  - See `docs/theory/rates.md` and section 21 of the API reference; examples
+    `examples/rates_*_example.py`.
 
 ### Fixed
 
