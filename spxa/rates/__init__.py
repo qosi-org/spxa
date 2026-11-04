@@ -94,7 +94,11 @@ Model cashflows
     :func:`swap_cashflows`: swaps as discount-curve cashflows under deterministic basis, for model pricing.
 Hull-White simulation
     :func:`hull_white_paths`: exact joint simulation of the Hull-White state and bank account.
+Hull-White tree
+    :class:`HullWhiteTree`: Hull-White (1994) trinomial tree fitted to the curve by forward induction.
 """
+
+from spxa.rates.hw_tree import HullWhiteTree
 
 from spxa.rates.hw_mc import HullWhitePaths, hull_white_paths
 
@@ -415,4 +419,5 @@ __all__ = [
     "swap_cashflows",
     "HullWhitePaths",
     "hull_white_paths",
+    "HullWhiteTree",
 ]
