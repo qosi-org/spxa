@@ -86,6 +86,32 @@ All notable changes to spxa are documented here. Follows [Keep a Changelog](http
     `StressTestingEngine`; `spxa.graph.rates` zero-curve nodes give key rates in one reverse pass.
   - See `docs/theory/rates.md` and section 21 of the API reference; examples
     `examples/rates_*_example.py`.
+- `vol/` — implied-volatility surfaces and the models calibrated to them (`spxa.vol`,
+  `spxa.graph.vol`):
+  - **Surfaces.** Raw, natural and jump-wings SVI; SSVI and eSSVI with their no-arbitrage
+    conditions; quasi-explicit, butterfly-free and surface calibration; Durrleman, calendar and
+    wing diagnostics; price-interpolated surfaces and implied distributions.
+  - **From quotes.** `build_vol_surface` (parity forwards, SVI/SSVI/eSSVI fits, quality report),
+    arbitrage repair of call prices, Fengler smoothing, `VolSurface` with sticky-strike and
+    sticky-moneyness Greeks, delta conventions, bucketed vega and JSON persistence.
+  - **Local volatility.** Dupire in implied variance with `spxa.pde` pricing, Andreasen–Huge
+    calibration, local-vol Monte Carlo, forward-start options and diagnostics.
+  - **Stochastic local volatility.** Heston, a 2D Fokker–Planck ADI forward solver, leverage by
+    forward induction and by particles, the mixing fraction, Monte Carlo with Brownian-bridge
+    barriers and an SLV PDE.
+  - **Rough volatility and VIX.** Rough Heston (fractional Riccati), lifted Heston, rough Bergomi
+    (hybrid scheme) and their calibration; VIX futures and options in Heston and rough Bergomi;
+    joint SPX/VIX calibration.
+  - **Martingale optimal transport.** Marginals from surfaces, LP bounds with dual super- and
+    sub-hedges, entropic (Sinkhorn) MOT, several dates, static replication and hedge backtests.
+  - **Variance and volatility swaps.** Carr–Madan fair variance, gamma swaps, forward-variance
+    curves, the model-free VIX, discrete monitoring, mark-to-market and Heston volatility swaps.
+  - **Model risk.** Cont's coherent and penalised measures over calibrated models (`ModelRisk`).
+  - **Connections.** `surface_price`/`surface_pricing_fn` value `spxa.risk` options on a surface
+    for `StressTestingEngine`; `process_vol_surface` and `Process.to_vol_surface` give the implied
+    surface of an exponential-Lévy zoo process; `spxa.graph.vol` adds SVI and surface-price nodes.
+  - See `docs/theory/vol.md` and section 22 of the API reference; examples
+    `examples/vol_*_example.py`.
 
 ### Fixed
 
