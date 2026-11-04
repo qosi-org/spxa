@@ -83,7 +83,11 @@ SLV Monte Carlo
     :func:`slv_paths`: full-truncation Euler SLV paths with Brownian-bridge knock-out barriers.
 SLV particles
     :func:`calibrate_leverage_particles`: Guyon–Henry-Labordère particle calibration with kernel regression.
+SLV PDE
+    :class:`SLVPDE`: backward SLV pricer on ADI for vanillas and knock-out barriers.
 """
+
+from spxa.vol.slv_pde import SLVPDE
 
 from spxa.vol.slv_particles import (
     ParticleCalibration,
@@ -325,4 +329,5 @@ __all__ = [
     "ParticleCalibration",
     "calibrate_leverage_particles",
     "kernel_conditional_mean",
+    "SLVPDE",
 ]
