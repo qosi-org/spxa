@@ -33,6 +33,7 @@
 | LIBOR market model | `LiborMarketModel`, `AbcdVol`, `exponential_correlation`, `rebonato_correlation`, `reduce_rank`, `lmm_paths`, `LMMPaths`, `calibrate_lmm`, `fit_abcd`, `LMMCalibration` |
 | Forward market model and SABR-LMM | `ForwardMarketModel`, `fmm_paths`, `FMMPaths`, `SABRLMM`, `sabr_lmm_paths` |
 | Bermudan swaptions | `BermudanSwaption`, `bermudan_swaption`, `bermudan_from_times`, `coterminal_swaptions`, `bermudan_pde`, `bermudan_tree` |
+| Exercise by simulation | `lsm`, `ExerciseProblem`, `LSMPolicy`, `LSMResult`, `andersen_broadie`, `DualBound`, `hull_white_exercise_problem`, `cheyette_exercise_problem`, `hull_white_transition` |
 
 ---
 
@@ -453,3 +454,9 @@ Under its own measure each forward is SABR with parameters $(\alpha_i, \beta, \r
 A Bermudan swaption can be exercised on any of the dates $t_1 < \dots < t_m$. Exercising at $t_k$ enters the remaining co-terminal swap, so the exercise value is $g_k = (\sum_i a^{(k)}_i P(t_k, t_i))^+$, where $a^{(k)}$ are that swap's model cashflows. Its value $\sup_\tau E[D(\tau)g_\tau]$ lies above every co-terminal European and below their sum. `bermudan_swaption` builds the contract from a `Swap`, with exercise on the fixing date of each fixed period start after a lockout. `coterminal_swaptions` returns the matching Europeans with identical dates and underlyings, which is the natural calibration set. On a lattice the value is the dynamic programme $V(t_k) = \max(g_k, E_{t_k}[D(t_k, t_{k+1})V(t_{k+1})])$.
 
 `bermudan_pde` solves it on `HullWhitePDE` or `CheyettePDE`, with the exercise dates inserted into the time grid. `bermudan_tree` uses the Hull–White trinomial tree, mapping node rates to the model state by $x = r - \varphi(t)$. Take a 1Y×5Y payer at 3.5% on 10,000 notional in Hull–White with $a = 0.05$ and $\sigma = 1\%$ (3% discounting, 3.4% projection), exercisable annually. The PDE gives $224.98$, against co-terminal Europeans of $149.17$, $168.83$, $153.91$, $116.67$ and $64.60$. With $\beta = 0.3$ and the same volatility level, Cheyette gives $223.29$.
+
+### 12.2 Monte Carlo bounds
+
+`lsm` implements Longstaff and Schwartz. Regressions of the realised discounted value on basis functions of the state, over in-the-money paths, give a continuation estimate and hence an exercise policy. The policy is then valued on independent paths, which makes the result an unbiased **lower bound**. `ExerciseProblem` only needs a transition function, so the code is shared between models. `hull_white_exercise_problem` uses the exact step `hull_white_transition`, and `cheyette_exercise_problem` uses the frozen-volatility step of `cheyette_paths`.
+
+The dual of Rogers and of Haugh and Kogan bounds the value from above by $E[\max_k(D(t_k)g_k - M_{t_k})]$ for any martingale with $M_0 = 0$. `andersen_broadie` builds $M$ from the LSM policy itself, with continuation values from nested simulation. The martingale only jumps where the policy exercises, and the width of the gap shows how far the policy is from optimal. For the swaption above, 200,000 paths give a lower bound of $225.07 \pm 0.53$. With 1,000 outer and 500 inner paths, the upper bound is $225.16$, a gap of $0.09$. The PDE value of $224.98$ lies within the Monte Carlo error of both bounds. A naive policy that exercises as soon as it is in the money is worth only $194.22$. Its dual bound is $227.19$, which is still valid but much wider.

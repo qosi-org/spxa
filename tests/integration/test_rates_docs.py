@@ -592,3 +592,27 @@ class TestBermudans:
         assert eu == [149.17, 168.83, 153.91, 116.67, 64.60]
         chey = r.CheyettePDE(r.Cheyette(self.DISC, 0.05, 0.01, beta=0.3), 161, 41, 200)
         assert round(r.bermudan_pde(chey, ber), 2) == 223.29
+
+    def test_monte_carlo_bounds(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "lower bound of $225.07 \\pm 0.53$",
+            "the upper bound is $225.16$, a gap of $0.09$",
+            "worth only $194.22$",
+            "Its dual bound is $227.19$",
+        ):
+            assert s in text, s
+        ber = self.bermudan()
+        hw = r.HullWhite(self.DISC, 0.05, 0.01)
+        prob = r.hull_white_exercise_problem(hw, ber)
+        res = r.lsm(prob, 200_000, seed=1, n_train=50_000)
+        dual = r.andersen_broadie(res, 1000, 500, seed=2)
+        assert (round(res.price, 2), round(res.stderr, 2)) == (225.07, 0.53)
+        assert (round(dual.upper, 2), round(dual.gap, 2)) == (225.16, 0.09)
+        pde = r.bermudan_pde(r.HullWhitePDE(hw, 401, 400), ber)
+        assert abs(res.price - pde) < res.stderr and abs(dual.upper - pde) < dual.stderr
+        naive = r.LSMPolicy(prob, tuple(np.r_[-1e30, np.zeros(4)] for _ in range(4)))
+        v = naive.value_from(-1, np.zeros((200_000, 1)), np.random.default_rng(4))
+        poor = r.LSMResult(float(v.mean()), float(v.std(ddof=1) / np.sqrt(v.size)), naive, 0.0)
+        assert round(poor.price, 2) == 194.22
+        assert round(r.andersen_broadie(poor, 1000, 500, seed=5).upper, 2) == 227.19
