@@ -480,7 +480,14 @@ class TestHJMAndCheyette:
 
     def test_section_numbers_in_text(self) -> None:
         text = DOC.read_text(encoding="utf-8")
-        for s in ("$\\tau = 1/\\gamma - \\alpha/\\beta$",):
+        for s in (
+            "$\\bar b = 0.04$",
+            "$1.21$ at $\\beta = 0.3$",
+            "$70.6$, $85.9$ and $100.7$ bp",
+            "$71.0$, $86.5$ and $101.5$ bp",
+            "$86.7$, $87.1$ and $87.6$ bp",
+            "$\\tau = 1/\\gamma - \\alpha/\\beta$",
+        ):
             assert s in text, s
 
     def test_hump_peak(self) -> None:
@@ -494,3 +501,26 @@ class TestHJMAndCheyette:
         assert hjm.zcb_option(3.0, 8.0, 0.85) == pytest.approx(
             hw.zcb_option(3.0, 8.0, 0.85), rel=1e-11
         )
+
+    def test_cheyette_smiles(self) -> None:
+        def vols(beta: float) -> tuple[list[float], list[float]]:
+            m = r.Cheyette(self.DISC, 0.05, 0.01, beta=beta)
+            pde = r.CheyettePDE(m, 161, 41, 100)
+            out_pde, out_apx = [], []
+            for k in (0.025, 0.0346, 0.045):
+                sw = r.swaption(self.REF, "2Y", "5Y", k, notional=1e4, payer=k > 0.03)
+                for out, p in (
+                    (out_pde, pde.swaption(sw, self.PROJ)),
+                    (out_apx, r.cheyette_swaption(m, sw, self.PROJ)),
+                ):
+                    out.append(round(sw.implied_vol(p, self.DISC, self.PROJ, "normal") * 1e4, 1))
+            return out_pde, out_apx
+
+        assert vols(0.3) == ([70.6, 85.9, 100.7], [71.0, 86.5, 101.5])
+        assert vols(0.0)[0] == [86.7, 87.1, 87.6]
+        atm = r.swaption(self.REF, "2Y", "5Y", 0.0346, notional=1e4)
+        skews = [
+            r.swap_rate_dynamics(r.Cheyette(self.DISC, 0.05, 0.01, beta=b), atm, self.PROJ).skew
+            for b in (0.0, 0.3)
+        ]
+        assert [round(s, 2) for s in skews] == [0.04, 1.21]

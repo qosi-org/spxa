@@ -29,6 +29,7 @@
 | Positive short rates | `BlackKarasinski`, `BlackKarasinskiTree`, `black_karasinski_paths`, `CIRPlusPlus` |
 | Model interface | `ShortRateModel`, `model_price`, `model_implied_vols` |
 | Gaussian HJM | `GaussianHJM`, `exponential_vol`, `hump_vol`, `hjm_paths` |
+| Cheyette | `Cheyette`, `cheyette_paths`, `CheyettePDE`, `cheyette_swaption`, `swap_rate_dynamics`, `calibrate_cheyette` |
 
 ---
 
@@ -369,3 +370,21 @@ and the drift is forced by no-arbitrage, so `GaussianHJM` fits the initial curve
 ### 10.2 Simulating the curve
 
 `hjm_paths` evolves log deflated bonds $Z(t, T_j) = P(t, T_j)/B(t)$ on a maturity grid. Each step freezes $\Sigma$ at its start, and the increment $-\tfrac12|\Sigma|^2\Delta t - \Sigma\cdot\Delta W$ has $E[e^{\cdot}] = 1$ exactly. Every $Z(\cdot, T_j)$ is then a discrete martingale, and the curve is repriced with no discretisation bias. The deflator is $Z(t, t)$. The remaining error sits in option prices, through the left-point variance $\sum_k |\Sigma(t_k, S) - \Sigma(t_k, T)|^2\Delta t$. The simulated payoff is priced exactly by Black at that variance, which converges at first order.
+
+### 10.3 Cheyette
+
+A separable volatility $\sigma_r(t)\,e^{-\kappa(T - t)}$ makes HJM Markovian in two states. Cheyette's model (Andersen & Piterbarg, ch. 13) lets the short-rate volatility depend on the state, $\sigma_r(t, x)$, while keeping that structure:
+
+$$
+dx = (y - \kappa x)\,dt + \sigma_r\,dW, \qquad dy = (\sigma_r^2 - 2\kappa y)\,dt, \qquad P(t, T) = \frac{P(0, T)}{P(0, t)}e^{-G x - \frac12 G^2 y},
+$$
+
+with $G = (1 - e^{-\kappa(T - t)})/\kappa$. `Cheyette` uses the linear local volatility $\sigma_r = \max(\sigma(t) + \beta x, 0)$. With $\beta = 0$, $y$ is deterministic and the model is Hull–White. A positive $\beta$ raises the volatility as rates rise, which produces the upward-sloping normal-vol skew of rate markets.
+
+### 10.4 Engines
+
+`cheyette_paths` freezes $\sigma_r$ and $y$ over each step and solves the step exactly. For $\beta = 0$ this is the exact Hull–White transition. `CheyettePDE` solves the two-dimensional pricing equation. Because $y$ has no diffusion, each step splits into semi-Lagrangian advection in $y$ and an implicit solve in $x$ on each $y$-slice. Exercise dates apply $\max(V, g)$, so the PDE prices American and Bermudan claims as well.
+
+### 10.5 Swaptions and calibration
+
+`cheyette_swaption` follows Andersen & Piterbarg's projection. Freezing $y$ at $\bar y(t)$, the swap-rate volatility $S_x\sigma_r$ is linearised into a displaced diffusion $\lambda(t)(b(t)S + (1 - b(t))S_0)$. The skew is averaged with weights $\lambda^2(t)\int_0^t\lambda^2$ (Piterbarg), and the swaption is priced in displaced Black. For a 2Y×5Y swaption with $\kappa = 0.05$ and $\sigma = 1\%$ on the flat 3% curve, the averaged skew is $\bar b = 0.04$ at $\beta = 0$ and $1.21$ at $\beta = 0.3$. With $\beta = 0.3$ the PDE gives normal vols of $70.6$, $85.9$ and $100.7$ bp at strikes $2.5\%$, $3.46\%$ and $4.5\%$, and the approximation gives $71.0$, $86.5$ and $101.5$ bp, within 1 bp across the smile. With $\beta = 0$ the same strikes are nearly flat, at $86.7$, $87.1$ and $87.6$ bp. `calibrate_cheyette` fits one $\sigma$ level per expiry, plus $\beta$, to a grid of strikes at each expiry using this formula.
