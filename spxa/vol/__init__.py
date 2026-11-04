@@ -75,7 +75,15 @@ Heston
     :class:`Heston`: forward-measure Heston with Lewis pricing, the SV leg of SLV.
 SLV grids
     :class:`SLVGrid`, :func:`slv_grid` and :class:`LeverageSurface` for stochastic local volatility.
+SLV forward equation
+    :func:`slv_forward`: joint (y, v) density by the discrete adjoint of the ADI generator; :class:`SLVDensity` gives smiles and E[v|y].
 """
+
+from spxa.vol.slv_fp import (
+    SLVDensity,
+    SLVForward,
+    slv_forward,
+)
 
 from spxa.vol.slv import (
     LeverageSurface,
@@ -285,4 +293,7 @@ __all__ = [
     "slv_grid",
     "variance_quantile",
     "variance_std",
+    "SLVDensity",
+    "SLVForward",
+    "slv_forward",
 ]
