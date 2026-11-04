@@ -103,3 +103,41 @@ def test_monte_carlo_reprices_curves_and_yoy_convexity() -> None:
     assert abs(pay.mean() - naive) > 8 * se
     with pytest.raises(KeyError):
         paths.column(2.5)
+
+
+def test_caplets_closed_form_parity_and_limits() -> None:
+    # put-call parity on both ratios
+    for k in (-0.01, 0.0, 0.02, 0.04):
+        c, p = JY.yoy_caplet(4.0, 5.0, k), JY.yoy_caplet(4.0, 5.0, k, "put")
+        assert c - p == pytest.approx(JY.yoy_swaplet(4.0, 5.0) - k * math.exp(-0.15), abs=1e-15)
+        zc, zf = JY.zero_coupon_caplet(10.0, k), JY.zero_coupon_caplet(10.0, k, "put")
+        fwd = math.exp(-0.3) * (JY.forward_index(10.0) / 100.0 - (1 + k) ** 10)
+        assert zc - zf == pytest.approx(fwd, abs=1e-14)
+    # only the index volatility left: Var log I(T2)/I(T1) = sigma_I^2 (T2 - T1)
+    index_only = JarrowYildirim(NOMINAL, REAL, 100.0, **{**PARAMS, "sigma_n": 0.0, "sigma_r": 0.0})
+    assert index_only.log_ratio_variance(4.0, 5.5) == pytest.approx(0.012**2 * 1.5, rel=1e-13)
+    # rate volatility adds to the zero-coupon variance; over ten years it dominates the index's
+    assert JY.log_ratio_variance(0.0, 10.0) > 10 * 0.012**2
+    assert round(JY.log_ratio_variance(0.0, 10.0), 4) == 0.0184
+
+
+def test_caplets_against_monte_carlo() -> None:
+    paths = jy_paths(JY, 10.0, 200, 100_000, record=(4.0, 5.0, 9.0), seed=2)
+    n = paths.discount.shape[0]
+
+    def check(pay: np.ndarray, closed: float) -> None:
+        assert abs(pay.mean() - closed) < 3 * pay.std() / math.sqrt(n)
+
+    for t1, t2, k in [(4.0, 5.0, 0.02), (9.0, 10.0, 0.0), (9.0, 10.0, 0.03)]:
+        c1, c2 = paths.column(t1), paths.column(t2)
+        ratio = paths.index[:, c2] / paths.index[:, c1]
+        check(paths.discount[:, c2] * np.maximum(ratio - 1 - k, 0.0), JY.yoy_caplet(t1, t2, k))
+    c = paths.column(10.0)
+    growth = paths.index[:, c] / 100.0
+    check(
+        paths.discount[:, c] * np.maximum(1.0 - growth, 0.0),
+        JY.zero_coupon_caplet(10.0, 0.0, "put"),
+    )
+    check(
+        paths.discount[:, c] * np.maximum(growth - 1.02**10, 0.0), JY.zero_coupon_caplet(10.0, 0.02)
+    )

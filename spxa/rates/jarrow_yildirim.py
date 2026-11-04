@@ -29,7 +29,10 @@ shifts the mean of :math:`r_{T_1}`. This gives the convexity factor
         + \rho_{nr}\sigma_n\sigma_r \int_0^{T_1} e^{-a_r u}B_n(0,u)\,du
         - \tfrac12\sigma_r^2 B_r(0,T_1)^2\Bigr],
 
-with :math:`B_x(t,T) = (1 - e^{-a_x(T-t)})/a_x`.
+with :math:`B_x(t,T) = (1 - e^{-a_x(T-t)})/a_x`. Under the nominal
+:math:`T_2`-forward measure, :math:`\log I(T_2)/I(T_1)` is Gaussian, with a
+variance that does not depend on the measure. Inflation caplets on the
+zero-coupon and year-on-year ratios are therefore Black formulas.
 """
 
 from __future__ import annotations
@@ -39,9 +42,12 @@ from typing import Any
 
 import numpy as np
 
+from spxa.market.black import black_price
 from spxa.market.curves import YieldCurve
 
 __all__ = ["JarrowYildirim"]
+
+_GL_X, _GL_W = np.polynomial.legendre.leggauss(64)
 
 
 def _B(a: float, tau: Any) -> Any:
@@ -135,3 +141,43 @@ class JarrowYildirim:
         flt = sum(self.yoy_swaplet(a, b) for a, b in zip(t[:-1], t[1:]))
         ann = sum((b - a) * float(self.nominal.discount(b)) for a, b in zip(t[:-1], t[1:]))
         return float(flt / ann)
+
+    # -- distributions and options --------------------------------------------
+    def log_ratio_variance(self, T1: Any, T2: Any) -> float:
+        r"""Variance of :math:`\log I(T_2)/I(T_1)` (any measure), by Gauss–Legendre on the
+        exact covariance integrand."""
+        t1, t2 = self._t(T1), self._t(T2)
+        if not 0 <= t1 < t2:
+            raise ValueError("need 0 <= T1 < T2")
+        sn, sr, si = self.sigma_n, self.sigma_r, self.sigma_i
+        total = 0.0
+        for lo, hi, inside in ((0.0, t1, False), (t1, t2, True)):
+            if hi <= lo:
+                continue
+            u = lo + 0.5 * (hi - lo) * (_GL_X + 1.0)
+            w = 0.5 * (hi - lo) * _GL_W
+            if inside:  # the integrals of n and r over [u, T2], and the index's own shock
+                gn, gr, gi = _B(self.a_n, t2 - u), _B(self.a_r, t2 - u), np.ones_like(u)
+            else:
+                gn = np.exp(-self.a_n * (t1 - u)) * _B(self.a_n, t2 - t1)
+                gr = np.exp(-self.a_r * (t1 - u)) * _B(self.a_r, t2 - t1)
+                gi = np.zeros_like(u)
+            vec = np.stack([sn * gn, -sr * gr, si * gi])
+            total += float(w @ np.einsum("iu,ij,ju->u", vec, self.correlation, vec))
+        return total
+
+    def zero_coupon_caplet(self, T: Any, strike: float, option: str = "call") -> float:
+        """Option on :math:`I(T)/I(0)` struck at :math:`(1+k)^T`, paid at :math:`T` per unit notional."""
+        t = self._t(T)
+        F = self.forward_index(t) / self.cpi0
+        v = math.sqrt(self.log_ratio_variance(0.0, t))
+        return float(
+            black_price(F, (1.0 + strike) ** t, 1.0, v, float(self.nominal.discount(t)), option)
+        )
+
+    def yoy_caplet(self, T1: Any, T2: Any, strike: float, option: str = "call") -> float:
+        """Option on :math:`I(T_2)/I(T_1) - 1` struck at ``strike``, paid at :math:`T_2`."""
+        t2 = self._t(T2)
+        F = self.yoy_forward(T1, t2)
+        v = math.sqrt(self.log_ratio_variance(T1, t2))
+        return float(black_price(F, 1.0 + strike, 1.0, v, float(self.nominal.discount(t2)), option))
