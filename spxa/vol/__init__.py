@@ -79,7 +79,14 @@ SLV forward equation
     :func:`slv_forward`: joint (y, v) density by the discrete adjoint of the ADI generator; :class:`SLVDensity` gives smiles and E[v|y].
 Leverage calibration
     :func:`calibrate_leverage`: SLV leverage by forward induction on the Fokker–Planck density.
+SLV Monte Carlo
+    :func:`slv_paths`: full-truncation Euler SLV paths with Brownian-bridge knock-out barriers.
 """
+
+from spxa.vol.slv_mc import (
+    SLVPaths,
+    slv_paths,
+)
 
 from spxa.vol.slv_fp import (
     LeverageCalibration,
@@ -305,4 +312,6 @@ __all__ = [
     "slv_forward",
     "LeverageCalibration",
     "calibrate_leverage",
+    "SLVPaths",
+    "slv_paths",
 ]
