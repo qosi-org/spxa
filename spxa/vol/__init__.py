@@ -37,7 +37,8 @@ Surfaces
     :func:`build_vol_surface` runs quotes -> parity forwards -> OTM
     total variances -> SVI/eSSVI/SSVI fit -> surface
     (:class:`SurfaceBuild`, :class:`ForwardTermStructure`,
-    :func:`chain_total_variance`).
+    :func:`chain_total_variance`); :meth:`SurfaceBuild.quality` gives a
+    :class:`SurfaceQuality` report (fit errors, butterfly, calendar).
 Deltas
     :func:`black_delta` (forward/spot, premium-adjusted),
     :func:`strike_from_delta` and :func:`atm_dns_strike`, also as
@@ -113,6 +114,8 @@ from spxa.vol.svi import SVIJumpWings, SVINatural, SVIRaw
 from spxa.vol.build import (
     ForwardTermStructure,
     SurfaceBuild,
+    SurfaceQuality,
+    ExpiryQuality,
     build_vol_surface,
     chain_total_variance,
 )
@@ -188,6 +191,8 @@ __all__ = [
     "ForwardLike",
     "build_vol_surface",
     "SurfaceBuild",
+    "SurfaceQuality",
+    "ExpiryQuality",
     "ForwardTermStructure",
     "chain_total_variance",
     # arbitrage repair

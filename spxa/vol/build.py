@@ -43,7 +43,14 @@ from spxa.vol.essvi import calibrate_essvi
 from spxa.vol.interpolation import PriceInterpolatedSurface
 from spxa.vol.surface import VolSurface
 
-__all__ = ["ForwardTermStructure", "SurfaceBuild", "build_vol_surface", "chain_total_variance"]
+__all__ = [
+    "ForwardTermStructure",
+    "SurfaceBuild",
+    "SurfaceQuality",
+    "ExpiryQuality",
+    "build_vol_surface",
+    "chain_total_variance",
+]
 
 
 class ForwardTermStructure:
@@ -164,6 +171,42 @@ class SurfaceBuild:
         """Fitted total variance at the data of expiry ``i``."""
         return np.asarray(self.surface.total_variance(self.ks[i], self.expiries[i]), float)
 
+    def quality(self, tol: float = 1e-8, points: int = 401) -> SurfaceQuality:
+        """Fit errors per expiry, plus butterfly and calendar checks over the quoted range.
+
+        Durrleman's :math:`g` is scanned on ``points`` log-moneyness values
+        spanning each expiry's quotes. The calendar condition
+        :math:`w(k, T_{i+1}) \\ge w(k, T_i)` is scanned over the union of the
+        quoted ranges.
+        """
+        from spxa.vol.arbitrage import check_butterfly, check_calendar
+
+        rows = []
+        for i, T in enumerate(self.expiries):
+            T = float(T)
+            m = np.sqrt(self.model_total_variance(i) / T)
+            err = m - np.sqrt(self.ws[i] / T)
+            k = np.linspace(float(self.ks[i].min()), float(self.ks[i].max()), points)
+            bf = check_butterfly(lambda x, T=T: self.surface.total_variance(x, T), k, tol)
+            rows.append(
+                ExpiryQuality(
+                    T,
+                    int(self.ks[i].size),
+                    float(np.sqrt(np.mean(err**2))),
+                    float(np.max(np.abs(err))),
+                    float(self.surface.atm_vol(T)),
+                    float(self.surface.atm_skew(T)),
+                    float(bf.min_g),
+                    bool(bf.arbitrage_free),
+                )
+            )
+        lo = min(float(k.min()) for k in self.ks)
+        hi = max(float(k.max()) for k in self.ks)
+        kk = np.linspace(lo, hi, points)
+        slices = [lambda x, T=float(T): self.surface.total_variance(x, T) for T in self.expiries]
+        cal = check_calendar(slices, kk, tol)
+        return SurfaceQuality(tuple(rows), bool(cal.arbitrage_free), float(cal.worst))
+
     @property
     def vol_rmse(self) -> np.ndarray:
         """Root-mean-square implied-volatility error per expiry."""
@@ -172,6 +215,54 @@ class SurfaceBuild:
             m = np.sqrt(self.model_total_variance(i) / T)
             out.append(float(np.sqrt(np.mean((m - np.sqrt(self.ws[i] / T)) ** 2))))
         return np.array(out)
+
+
+@dataclass(frozen=True)
+class ExpiryQuality:
+    """Fit diagnostics for one expiry of a :class:`SurfaceBuild`."""
+
+    expiry: float
+    n_quotes: int
+    vol_rmse: float
+    max_vol_error: float
+    atm_vol: float
+    atm_skew: float
+    min_g: float  # minimum of Durrleman's g over the quoted k-range
+    butterfly_free: bool
+
+
+@dataclass(frozen=True)
+class SurfaceQuality:
+    """Diagnostics of a built surface: per-expiry fit quality and static-arbitrage checks."""
+
+    expiries: tuple[ExpiryQuality, ...]
+    calendar_free: bool
+    worst_calendar: float  # largest decrease of w between consecutive expiries (<= 0 if none)
+
+    @property
+    def arbitrage_free(self) -> bool:
+        return self.calendar_free and all(e.butterfly_free for e in self.expiries)
+
+    @property
+    def worst_vol_error(self) -> float:
+        return max(e.max_vol_error for e in self.expiries)
+
+    def table(self) -> str:
+        """Plain-text table, one row per expiry."""
+        head = f"{'T':>7} {'n':>4} {'rmse(bp)':>9} {'max(bp)':>8} {'atm':>7} {'skew':>8} {'min g':>9}  ok"
+        rows = [head]
+        for e in self.expiries:
+            rows.append(
+                f"{e.expiry:7.3f} {e.n_quotes:4d} {1e4 * e.vol_rmse:9.2f} {1e4 * e.max_vol_error:8.2f} "
+                f"{e.atm_vol:7.4f} {e.atm_skew:8.4f} {e.min_g:9.2e}  {'yes' if e.butterfly_free else 'NO'}"
+            )
+        cal = (
+            "calendar-free"
+            if self.calendar_free
+            else f"calendar arbitrage {self.worst_calendar:.2e}"
+        )
+        rows.append(cal)
+        return "\n".join(rows)
 
 
 def build_vol_surface(
