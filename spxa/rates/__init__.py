@@ -139,7 +139,14 @@ LMM calibration
 Forward market model
     :class:`ForwardMarketModel`: backward-looking compounded rates with decaying volatility;
     :func:`fmm_paths` simulates them under the spot measure.
+SABR-LMM
+    :class:`SABRLMM`: CEV forwards with a shared lognormal volatility factor.
 """
+
+from spxa.rates.sabr_lmm import (
+    SABRLMM,
+    sabr_lmm_paths,
+)
 
 from spxa.rates.fmm import FMMPaths, ForwardMarketModel, fmm_paths
 
@@ -568,4 +575,6 @@ __all__ = [
     "ForwardMarketModel",
     "FMMPaths",
     "fmm_paths",
+    "SABRLMM",
+    "sabr_lmm_paths",
 ]
