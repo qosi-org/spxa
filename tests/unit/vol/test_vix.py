@@ -5,8 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from scipy.integrate import quad
+from scipy.stats import ncx2
 
-from spxa.vol.vix import VIX_WINDOW, RBergomiVIX
+from spxa.vol import Heston
+from spxa.vol.vix import VIX_WINDOW, HestonVIX, RBergomiVIX
 
 
 def xi(t: np.ndarray) -> np.ndarray:
@@ -62,3 +64,37 @@ def test_vix_options_parity_skew_and_term_structure() -> None:
     assert iv[-1] - iv[0] < 0.01
     atm = [M.implied_vols(t, M.futures(t, seed=1)[0], seed=1)[0] for t in (0.05, 0.25, 1.0, 2.0)]
     assert np.all(np.diff(atm) < 0) and atm[0] > 1.3 and atm[-1] < 0.55
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        Heston(0.04, 1.5, 0.04, 0.5, -0.7),
+        Heston(0.02, 0.5, 0.05, 0.6, -0.7),
+        Heston(0.01, 0.3, 0.05, 1.5, -0.7),
+    ],
+)
+def test_heston_vix_quadrature_against_exact_sampling(model: Heston) -> None:
+    m = HestonVIX(model)
+    T = 0.5
+    c, d, lam = m.variance_law(T)
+    assert c * (d + lam) == pytest.approx(model.mean_variance(T), rel=1e-14)
+    # mass and first moment are exact, including d < 1 and the extreme d = 0.027
+    assert m._expect(T, lambda x: 1.0 + 0.0 * x) == pytest.approx(1.0, abs=1e-12)
+    assert m._expect(T, lambda x: m.a * c * x + m.b) == pytest.approx(
+        m.expected_vix_squared(T), rel=1e-9
+    )
+    x = ncx2(d, lam).rvs(size=1_000_000, random_state=np.random.default_rng(0))
+    vix = np.sqrt(m.a * c * x + m.b)
+    se = vix.std() / np.sqrt(vix.size)
+    assert abs(m.futures(T) - vix.mean()) < 3 * se
+    K = np.array([0.12, 0.16, 0.2, 0.24, 0.3])
+    pay = np.maximum(vix[:, None] - K, 0.0)
+    assert np.all(np.abs(m.options(T, K) - pay.mean(0)) < 3 * pay.std(0) / np.sqrt(vix.size))
+    np.testing.assert_allclose(
+        m.options(T, K) - m.options(T, K, "put"), m.futures(T) - K, atol=1e-14
+    )
+    if (
+        d > 0.1
+    ):  # Heston: negative VIX skew, unlike the market (d = 0.027 piles mass at VIX = sqrt(b))
+        assert np.all(np.diff(m.implied_vols(T, K)) < 0)

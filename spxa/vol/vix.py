@@ -21,6 +21,12 @@ in closed form through :math:`{}_2F_1`. :class:`RBergomiVIX` puts the
 exactly, so the only error in VIX futures and options is Monte Carlo
 noise. :math:`E[\mathrm{VIX}_T^2] = \frac1\Delta\int\xi_0` holds exactly, and
 VIX futures lie below its square root by Jensen's inequality.
+
+**Heston.** :math:`E_T[v_u] = \theta + (v_T - \theta)e^{-\kappa(u-T)}`, so
+:math:`\mathrm{VIX}_T^2 = a v_T + b` with :math:`a = (1 - e^{-\kappa\Delta})/(\kappa\Delta)`
+and :math:`b = \theta(1 - a)`, where :math:`v_T` is a scaled noncentral
+:math:`\chi^2`. :class:`HestonVIX` prices futures and options by one-dimensional
+quadrature against that density.
 """
 
 from __future__ import annotations
@@ -30,10 +36,12 @@ from typing import Any, Callable, Optional, Union
 
 import numpy as np
 from scipy.special import hyp2f1
+from scipy.stats import ncx2
 
 from spxa.market import black_price, implied_black_volatility
+from spxa.vol.heston import Heston
 
-__all__ = ["RBergomiVIX", "VIX_WINDOW"]
+__all__ = ["HestonVIX", "RBergomiVIX", "VIX_WINDOW"]
 
 VIX_WINDOW = 30.0 / 365.0
 Curve = Union[float, Callable[[np.ndarray], np.ndarray]]
@@ -164,3 +172,78 @@ class RBergomiVIX:
         return np.asarray(
             black_price(fut, np.asarray(K, float), T, math.sqrt(s2 / 4 / T), 1.0, option), float
         )
+
+
+class HestonVIX:
+    """VIX futures and options in the Heston model (closed form up to one quadrature)."""
+
+    def __init__(self, model: Heston, delta: float = VIX_WINDOW) -> None:
+        self.model, self.delta = model, float(delta)
+        k = model.kappa * self.delta
+        self.a = -math.expm1(-k) / k
+        self.b = model.theta * (1.0 - self.a)
+
+    def variance_law(self, T: float) -> tuple[float, float, float]:
+        r"""``(c, d, lam)`` with :math:`v_T = c\,\chi'^2_d(\lambda)`."""
+        m = self.model
+        e = math.exp(-m.kappa * T)
+        c = m.xi**2 * (1.0 - e) / (4.0 * m.kappa)
+        return c, 4.0 * m.kappa * m.theta / m.xi**2, m.v0 * e / c
+
+    def expected_vix_squared(self, T: float) -> float:
+        return float(self.a * self.model.mean_variance(T) + self.b)
+
+    def _expect(self, T: float, g: Callable[[np.ndarray], np.ndarray], lower: float = 0.0) -> float:
+        # E[g(x); x > lower] for x ~ chi'^2_d(lam). The mass below x0 = 1e-13 hi is lumped at x0
+        # (g is Lipschitz there); above it, x = y^p with p d/2 >= 2 tames the x^{d/2-1}
+        # singularity, and composite Gauss-Legendre in y runs up to mean + 14 sd + 80.
+        c, d, lam = self.variance_law(T)
+        hi = d + lam + 14.0 * math.sqrt(2.0 * (d + 2.0 * lam)) + 80.0  # density tail ~ e^{-x/2}
+        if lower >= hi:
+            return 0.0
+        x0 = 1e-13 * hi
+        head = 0.0
+        if lower < x0:
+            head = float(ncx2.cdf(x0, d, lam) - ncx2.cdf(lower, d, lam)) * float(
+                g(np.array([x0]))[0]
+            )
+            lower = x0
+        p = min(max(1.0, 4.0 / d), 60.0)
+        edges = np.linspace(lower ** (1 / p), hi ** (1 / p), 33)
+        x, w = np.polynomial.legendre.leggauss(24)
+        mid, half = 0.5 * (edges[1:] + edges[:-1]), 0.5 * np.diff(edges)
+        y = (mid[:, None] + half[:, None] * x[None, :]).ravel()
+        wy = (half[:, None] * w[None, :]).ravel()
+        xs = y**p
+        dens = ncx2.pdf(xs, d, lam) * p * y ** (p - 1)
+        return head + float(np.sum(wy * dens * g(xs)))
+
+    def futures(self, T: float) -> float:
+        r""":math:`E[\mathrm{VIX}_T] = E\sqrt{a v_T + b}`."""
+        c = self.variance_law(T)[0]
+        return self._expect(T, lambda x: np.sqrt(self.a * c * x + self.b))
+
+    def options(self, T: float, K: Any, option: str = "call") -> np.ndarray:
+        """Undiscounted VIX option prices; puts by parity on the futures."""
+        c = self.variance_law(T)[0]
+        Ks = np.atleast_1d(np.asarray(K, float))
+        calls = np.array(
+            [
+                self._expect(
+                    T,
+                    lambda x, k=k: np.sqrt(self.a * c * x + self.b) - k,
+                    max((k * k - self.b) / (self.a * c), 0.0),
+                )
+                for k in Ks
+            ]
+        )
+        return calls if option == "call" else calls - (self.futures(T) - Ks)
+
+    def implied_vols(self, T: float, K: Any) -> np.ndarray:
+        """Black implied volatilities of VIX options on the futures."""
+        Ks = np.atleast_1d(np.asarray(K, float))
+        fut = self.futures(T)
+        calls = self.options(T, Ks)
+        kinds = np.where(Ks >= fut, "call", "put")
+        otm = np.where(Ks >= fut, calls, calls - (fut - Ks))
+        return np.asarray(implied_black_volatility(otm, fut, Ks, T, 1.0, kinds), float)

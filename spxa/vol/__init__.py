@@ -101,10 +101,7 @@ VIX
     :class:`RBergomiVIX`: exact VIX sampling in rough Bergomi.
 """
 
-from spxa.vol.vix import (
-    RBergomiVIX,
-    VIX_WINDOW,
-)
+from spxa.vol.vix import HestonVIX, RBergomiVIX, VIX_WINDOW
 
 from spxa.vol.rbergomi_calibration import (
     RBergomiFit,
@@ -393,6 +390,7 @@ __all__ = [
     "rbergomi_paths",
     "RBergomiFit",
     "calibrate_rbergomi",
+    "HestonVIX",
     "RBergomiVIX",
     "VIX_WINDOW",
 ]
