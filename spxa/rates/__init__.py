@@ -98,7 +98,16 @@ Hull-White tree
     :class:`HullWhiteTree`: Hull-White (1994) trinomial tree fitted to the curve by forward induction.
 Hull-White PDE
     :class:`HullWhitePDE`: Crank-Nicolson pricing in the Hull-White state on the spxa.pde solvers.
+Hull-White calibration
+    :func:`calibrate_hull_white`: bootstrap or global calibration of Hull-White to swaptions and caps.
 """
+
+from spxa.rates.hw_calibration import (
+    HullWhiteCalibration,
+    calibrate_hull_white,
+    market_prices,
+    model_price,
+)
 
 from spxa.rates.hw_pde import HullWhitePDE
 
@@ -425,4 +434,8 @@ __all__ = [
     "hull_white_paths",
     "HullWhiteTree",
     "HullWhitePDE",
+    "HullWhiteCalibration",
+    "calibrate_hull_white",
+    "market_prices",
+    "model_price",
 ]
