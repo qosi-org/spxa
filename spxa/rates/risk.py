@@ -16,6 +16,15 @@ price :math:`V(x)`:
   what a full re-bootstrap after bumping one quote gives, but costs one
   Jacobian instead of one bootstrap per quote.
 
+**Key-rate deltas** (Ho, 1992) need no fit at all: the zero curve of any
+:class:`~spxa.market.curves.YieldCurve` is moved by triangular hats
+:math:`h_k(t)` centred on key tenors, flat beyond the first and last keys,
+
+.. math:: P'(t) = P(t)\exp\Bigl(-t\sum_k b_k h_k(t)\Bigr).
+
+The hats sum to one, so the key-rate deltas add up to the delta for a
+parallel zero-rate shift to first order.
+
 A price is any function of a mapping of named curves, for example
 ``lambda c: swap.pv(c["discount"], c["EUR-6M"])``. Several fitted curves
 are handled together: nodes and helpers are stacked across them, so the
@@ -43,6 +52,10 @@ __all__ = [
     "node_deltas",
     "quote_jacobian",
     "quote_deltas",
+    "KeyRateShiftedCurve",
+    "KeyRateRisk",
+    "key_rate_hats",
+    "key_rate_deltas",
 ]
 
 PriceFunction = Callable[[Mapping[str, YieldCurve]], float]
@@ -224,3 +237,74 @@ def quote_deltas(
         raise ValueError(f"need as many helpers as nodes, got {J.shape}")
     dv = node_deltas(pv, curves, names, bump).deltas
     return QuoteRisk(list(helpers), np.linalg.solve(J.T, dv))
+
+
+# ----------------------------------------------------------------- key rates
+def key_rate_hats(keys: Sequence[float], t: Any) -> np.ndarray:
+    """Triangular weights :math:`h_k(t)`, shape ``(len(keys),) + shape(t)``; columns sum to one."""
+    k = np.asarray(keys, float)
+    if k.ndim != 1 or k.size == 0 or np.any(np.diff(k) <= 0) or k[0] < 0:
+        raise ValueError("keys must be non-negative and strictly increasing")
+    t = np.asarray(t, float)
+    eye = np.eye(k.size)
+    return np.stack([np.interp(t, k, eye[i]) for i in range(k.size)])
+
+
+class KeyRateShiftedCurve(YieldCurve):
+    """``base`` with zero-rate shifts ``shifts[k]`` spread over key tenors by triangular hats."""
+
+    def __init__(self, base: YieldCurve, keys: Sequence[float], shifts: Sequence[float]) -> None:
+        super().__init__(base.reference_date, base.day_count)
+        self.base = base
+        self.keys = np.asarray(keys, float)
+        self.shifts = np.asarray(shifts, float)
+        if self.shifts.shape != self.keys.shape:
+            raise ValueError("need one shift per key")
+        key_rate_hats(self.keys, 0.0)  # validates the keys
+
+    def _discount(self, t: np.ndarray) -> np.ndarray:
+        dz = np.tensordot(self.shifts, key_rate_hats(self.keys, t), axes=1)
+        return np.asarray(self.base.discount(t), float) * np.exp(-dz * t)
+
+
+@dataclass(frozen=True)
+class KeyRateRisk:
+    r""":math:`\partial V/\partial z_k` per unit zero-rate move at each key tenor."""
+
+    keys: np.ndarray
+    deltas: np.ndarray
+
+    @property
+    def per_bp(self) -> np.ndarray:
+        return 1e-4 * self.deltas
+
+    @property
+    def total(self) -> float:
+        return float(np.sum(self.deltas))
+
+
+def key_rate_deltas(
+    pv: PriceFunction,
+    curves: Mapping[str, YieldCurve],
+    keys: Sequence[float],
+    names: Optional[Sequence[str]] = None,
+    bump: float = 1e-4,
+) -> KeyRateRisk:
+    """Central-difference key-rate deltas, shifting the named curves together.
+
+    ``names`` defaults to every curve, which is the usual single-currency
+    convention of moving discount and projection zero rates in parallel.
+    """
+    names = list(curves) if names is None else list(names)
+    for n in names:
+        if n not in curves:
+            raise KeyError(f"no curve named {n!r}")
+    k = np.asarray(keys, float)
+    d = np.empty(k.size)
+    for i in range(k.size):
+        e = np.zeros(k.size)
+        e[i] = bump
+        up = {**curves, **{n: KeyRateShiftedCurve(curves[n], k, e) for n in names}}
+        dn = {**curves, **{n: KeyRateShiftedCurve(curves[n], k, -e) for n in names}}
+        d[i] = (pv(up) - pv(dn)) / (2 * bump)
+    return KeyRateRisk(k, d)

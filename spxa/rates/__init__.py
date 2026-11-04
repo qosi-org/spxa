@@ -52,7 +52,8 @@ Scheme diagnostics
 Curve risk
     :func:`node_deltas` (:class:`NodeRisk`), :func:`quote_deltas`
     (:class:`QuoteRisk`), :func:`quote_jacobian`, :func:`curve_nodes` and
-    :func:`with_node_values`.
+    :func:`with_node_values`; key-rate deltas :func:`key_rate_deltas`
+    (:class:`KeyRateRisk`, :class:`KeyRateShiftedCurve`, :func:`key_rate_hats`).
 Curve sets
     :class:`CurveSet`: named curves with a discount role and index
     projections; prices swaps and basis swaps by leg index.
@@ -160,6 +161,10 @@ from spxa.rates.diagnostics import (
     forward_roughness,
 )
 from spxa.rates.risk import (
+    KeyRateRisk,
+    KeyRateShiftedCurve,
+    key_rate_deltas,
+    key_rate_hats,
     NodeRisk,
     QuoteRisk,
     curve_nodes,
@@ -309,4 +314,8 @@ __all__ = [
     "node_deltas",
     "quote_jacobian",
     "quote_deltas",
+    "KeyRateRisk",
+    "KeyRateShiftedCurve",
+    "key_rate_hats",
+    "key_rate_deltas",
 ]
