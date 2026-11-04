@@ -122,7 +122,11 @@ HJM Monte Carlo
     :func:`hjm_paths`: martingale-exact simulation of deflated bonds under Gaussian HJM.
 Cheyette
     :class:`Cheyette`: quasi-Gaussian short rate with linear local volatility.
+Cheyette Monte Carlo
+    :func:`cheyette_paths`: frozen-coefficient exact stepping of the Cheyette states.
 """
+
+from spxa.rates.cheyette_mc import CheyettePaths, cheyette_paths
 
 from spxa.rates.cheyette import Cheyette
 
@@ -501,4 +505,6 @@ __all__ = [
     "HJMPaths",
     "hjm_paths",
     "Cheyette",
+    "CheyettePaths",
+    "cheyette_paths",
 ]
