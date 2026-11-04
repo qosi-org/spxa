@@ -62,7 +62,15 @@ Implied distribution
     and samples of :math:`\log(S_T/F_T)` from a slice.
 Local volatility
     :class:`LocalVolSurface` and :func:`dupire_local_variance`: Dupire's formula in total-variance form.
+Andreasen–Huge
+    :class:`AndreasenHugeSurface`: one implicit Dupire step per expiry, arbitrage-free by construction.
 """
+
+from spxa.vol.andreasen_huge import (
+    AndreasenHugeSurface,
+    andreasen_huge_grid,
+    piecewise_constant_vol,
+)
 
 from spxa.vol.local_vol import LocalVolSurface, dupire_local_variance
 
@@ -228,4 +236,7 @@ __all__ = [
     "loads",
     "LocalVolSurface",
     "dupire_local_variance",
+    "AndreasenHugeSurface",
+    "andreasen_huge_grid",
+    "piecewise_constant_vol",
 ]
