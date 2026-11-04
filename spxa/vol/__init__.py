@@ -120,7 +120,7 @@ Model risk
     :class:`ModelRisk`: Cont's coherent and penalised model-risk measures.
 """
 
-from spxa.vol.model_risk import ModelRisk
+from spxa.vol.model_risk import ModelRisk, smile_rmse
 
 from spxa.vol.variance_swaps import (
     ForwardVarianceCurve,
@@ -325,6 +325,7 @@ from spxa.vol.wings import (
 )
 
 __all__ = [
+    "smile_rmse",
     "realised_variance",
     "variance_swap_payoff",
     "ForwardVarianceCurve",

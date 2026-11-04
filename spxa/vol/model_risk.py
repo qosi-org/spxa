@@ -23,18 +23,19 @@ fit instead of with a hard tolerance gives the penalised (convex) version
 whose width falls from the full range at :math:`\lambda = 0` to the spread among
 the best-fitting models as :math:`\lambda \to \infty`. Model-free bounds (MOT,
 :func:`spxa.vol.robust_bounds`) contain every martingale model with the same
-marginals.
+marginals, so :meth:`ModelRisk.share` measures how much of the model-free
+interval a model family explores.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 import numpy as np
 
-__all__ = ["ModelRisk"]
+__all__ = ["ModelRisk", "smile_rmse"]
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,22 @@ class ModelRisk:
         )
         return cls(names, p, e, np.broadcast_to(s, p.shape).copy())
 
+    @classmethod
+    def from_samples(
+        cls,
+        samples: Mapping[str, Any],
+        payoff: Callable[..., Any],
+        errors: Optional[Mapping[str, float]] = None,
+        discount: float = 1.0,
+    ) -> "ModelRisk":
+        """Monte Carlo prices ``discount * mean(payoff(*samples[name]))`` with their standard errors."""
+        prices, ses = {}, {}
+        for name, args in samples.items():
+            pay = discount * np.asarray(payoff(*args), float)
+            prices[name] = pay.mean(axis=0)
+            ses[name] = pay.std(axis=0, ddof=1) / math.sqrt(pay.shape[0])
+        return cls.from_prices(prices, errors, ses)
+
     def _mask(self, tolerance: float) -> np.ndarray:
         mask = self.errors <= tolerance
         if not mask.any():
@@ -116,6 +133,25 @@ class ModelRisk:
         """Width over the mid of the admissible range."""
         return self.width(tolerance) / (0.5 * (self.upper(tolerance) + self.lower(tolerance)))
 
+    def significant(self, n_se: float = 3.0, tolerance: float = math.inf) -> Any:
+        """Whether the width exceeds the combined Monte Carlo error of the extreme models."""
+        m = self._mask(tolerance)
+        p, s = self.prices[m], self.std_errors[m]
+        hi, lo = p.argmax(axis=0), p.argmin(axis=0)
+        cols = np.arange(p.shape[1]) if p.ndim > 1 else None
+        s_hi = s[hi, cols] if cols is not None else s[hi]
+        s_lo = s[lo, cols] if cols is not None else s[lo]
+        return self.width(tolerance) > n_se * np.hypot(s_hi, s_lo)
+
+    def within(self, lower: Any, upper: Any, n_se: float = 3.0) -> bool:
+        """Whether every model price lies in ``[lower, upper]`` up to ``n_se`` standard errors."""
+        slack = n_se * self.std_errors
+        return bool(np.all(self.prices + slack >= lower) and np.all(self.prices - slack <= upper))
+
+    def share(self, lower: Any, upper: Any, tolerance: float = math.inf) -> Any:
+        """Fraction of a model-free interval ``[lower, upper]`` spanned by the admissible models."""
+        return self.width(tolerance) / (np.asarray(upper, float) - np.asarray(lower, float))
+
     def combine(self, weights: Any) -> "ModelRisk":
         """The portfolio ``sum_j weights[j] * claim_j``, priced model by model. Standard errors
         are combined as if the claims were priced on independent paths."""
@@ -124,3 +160,12 @@ class ModelRisk:
             raise ValueError("need one weight per claim")
         se = np.sqrt((self.std_errors**2) @ (w * w))
         return ModelRisk(self.names, self.prices @ w, self.errors, se)
+
+
+def smile_rmse(model_vols: Any, market_vols: Any, weights: Any = None) -> float:
+    """Weighted root-mean-square implied-volatility error, the usual calibration error."""
+    m, q = np.asarray(model_vols, float), np.asarray(market_vols, float)
+    if m.shape != q.shape:
+        raise ValueError("model and market vols must have the same shape")
+    w = np.ones_like(m) if weights is None else np.broadcast_to(np.asarray(weights, float), m.shape)
+    return float(np.sqrt((w * (m - q) ** 2).sum() / w.sum()))

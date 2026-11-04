@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from spxa.market import black_price
-from spxa.vol.model_risk import ModelRisk
+from spxa.vol.model_risk import ModelRisk, smile_rmse
 
 VOLS = {"bs18": 0.18, "bs20": 0.20, "bs22": 0.22, "bs25": 0.25}
 
@@ -76,3 +76,31 @@ def test_validation() -> None:
         ModelRisk.from_prices({"a": 1.0}, {"a": -0.1})
     with pytest.raises(ValueError):
         ModelRisk.from_prices({"a": 1.0, "b": 2.0}).combine([1.0])
+
+
+def test_monte_carlo_families() -> None:
+    def terminal(vol: float, seed: int, n: int = 100_000) -> tuple[np.ndarray]:
+        z = np.random.default_rng(seed).standard_normal(n)
+        return (100.0 * np.exp(vol * z - 0.5 * vol * vol),)
+
+    def call(s: np.ndarray) -> np.ndarray:
+        return np.maximum(s - 100.0, 0.0)
+
+    same = ModelRisk.from_samples({"seed1": terminal(0.2, 1), "seed2": terminal(0.2, 2)}, call)
+    exact = black_price(100.0, 100.0, 1.0, 0.2, 1.0)
+    assert np.all(np.abs(same.prices - exact) < 3 * same.std_errors)
+    assert not same.significant()  # two samples of one model: the spread is noise
+    family = ModelRisk.from_samples(
+        {"lo": terminal(0.19, 3), "hi": terminal(0.21, 4)},
+        call,
+        errors={"lo": smile_rmse([0.19], [0.2]), "hi": smile_rmse([0.21], [0.2])},
+        discount=0.97,
+    )
+    assert family.significant()
+    assert family.errors == pytest.approx([0.01, 0.01], abs=1e-15)
+    assert family.within(0.97 * 0.0, 0.97 * 100.0)  # trivial model-free bounds
+    assert not family.within(family.upper() + 1.0, family.upper() + 2.0)
+    assert family.share(0.0, 2 * family.width()) == pytest.approx(0.5, rel=1e-14)
+    assert smile_rmse([0.21, 0.19, 0.2], [0.2, 0.2, 0.2], weights=[1, 1, 2]) == pytest.approx(
+        math.sqrt(0.0002 / 4), rel=1e-12
+    )
