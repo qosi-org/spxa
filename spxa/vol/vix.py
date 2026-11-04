@@ -107,11 +107,17 @@ class RBergomiVIX:
         lam, V = np.linalg.eigh(C)
         A = V * np.sqrt(np.maximum(lam, 0.0))
         rng = np.random.default_rng(seed)
-        z = rng.standard_normal(((n_paths + 1) // 2, u.size))
-        z = np.concatenate([z, -z])[:n_paths]
-        G = z @ A.T
-        xi_T = self.xi(u) * np.exp(self.eta * G - 0.5 * self.eta**2 * np.diag(C))
-        return xi_T @ w
+        half = (n_paths + 1) // 2
+        z = rng.standard_normal((half, u.size))
+        xi_u, comp = self.xi(u), 0.5 * self.eta**2 * np.diag(C)
+        out = np.empty(n_paths)
+        for lo in range(0, half, 16384):  # blocks bound the memory of G
+            G = z[lo : lo + 16384] @ A.T
+            m = G.shape[0]
+            out[lo : lo + m] = (xi_u * np.exp(self.eta * G - comp)) @ w
+            neg = out[half + lo : min(half + lo + m, n_paths)]
+            neg[:] = ((xi_u * np.exp(-self.eta * G - comp)) @ w)[: neg.size]
+        return out
 
     def futures(
         self, T: float, n_paths: int = 200_000, seed: Optional[int] = None
