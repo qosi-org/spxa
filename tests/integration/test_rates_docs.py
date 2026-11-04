@@ -345,3 +345,40 @@ class TestCurveRisk:
         assert level.sum() > 0 and slope[-1] > slope[0]
         d = rng.normal(size=5)
         assert pca.factor_variance(d) == pytest.approx(np.var(changes @ d, ddof=1), rel=1e-10)
+
+
+class TestVolatilityProducts:
+    def test_section_numbers_in_text(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "9 caplets",
+            "$0.35902$",
+            "$0.36024$",
+            "$8.74\\%$",
+        ):
+            assert s in text, s
+
+    def test_caps_and_swaptions(self) -> None:
+        ref = D(2024, 3, 15)
+        disc = FlatCurve(0.03, reference_date=ref)
+        proj = FlatCurve(0.034, reference_date=ref)
+        cap = r.cap_floor(ref, "5Y", 0.035, r.EURIBOR6M)
+        floor = r.cap_floor(ref, "5Y", 0.035, r.EURIBOR6M, kind="floor")
+        assert len(cap.caplets) == 9
+        diff = cap.price(disc, proj, 0.2) - floor.price(disc, proj, 0.2)
+        fwd = sum(c.weight(disc) * c.forward(proj) for c in cap.caplets)
+        assert diff == pytest.approx(fwd - 0.035 * cap.annuity(disc), abs=1e-11)
+        assert r.cash_annuity(0.04, 10, 1) == pytest.approx((1 - 1.04**-10) / 0.04, rel=1e-14)
+
+    def test_sabr_wings_and_density(self) -> None:
+        M = r.SABR(0.035, 0.5, -0.3, 0.4)
+        K = 0.03 / math.e
+        assert round(float(M.lognormal_vol(0.03, K, 0.0)), 5) == 0.35902
+        assert round(float(M.lognormal_vol(0.03, K, 0.0, "obloj")), 5) == 0.36024
+        m = r.SABR(0.02, 0.5, -0.3, 0.5)
+        k = np.linspace(1e-4, 0.01, 400)
+        c = m.price(0.01, k, 10.0)
+        assert np.min(np.diff(c, 2)) < 0  # Hagan: negative density near zero
+        d = r.ArbitrageFreeSABR(m, 0.01, 10.0).solve()
+        assert round(d.P_L, 4) == 0.0874
+        assert d.mass() == pytest.approx(1.0, abs=1e-12)

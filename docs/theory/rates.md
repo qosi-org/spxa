@@ -20,6 +20,9 @@
 | Curve sets and diagnostics | `CurveSet`, `compare_schemes`, `bump_locality`, `forward_roughness` |
 | Curve risk | `node_deltas`, `quote_deltas`, `quote_jacobian`, `key_rate_deltas`, `KeyRateShiftedCurve`, `node_gamma`, `pnl_explain` |
 | Hedging and factors | `hedge_notionals`, `par_hedge`, `curve_pca`, `CurvePCA` |
+| Caps, floors and swaptions | `CapFloor`, `Caplet`, `cap_floor`, `Swaption`, `swaption`, `cash_annuity` |
+| SABR | `SABR`, `sabr_lognormal_vol`, `sabr_normal_vol`, `alpha_from_atm`, `calibrate_sabr`, `SABRFit` |
+| Arbitrage-free SABR | `ArbitrageFreeSABR`, `SABRDensity`, `sabr_paths`, `SABRPaths` |
 
 ---
 
@@ -264,3 +267,33 @@ Between two fits on the same nodes, `pnl_explain` splits the change in value int
 ### 7.4 Principal components
 
 `curve_pca` diagonalises the sample covariance of zero-rate changes on fixed tenors. Its first three loadings are level, slope and curvature (Litterman & Scheinkman, 1991). Signs are fixed so that the level loadings sum to a positive number, the slope rises from short to long tenors, and the curvature is positive at the middle tenor. For a book with key-rate deltas $d$ on the same tenors, the factor deltas are $d^\top v_j$. The book's P&L variance under the retained factors is $\sum_j\lambda_j(d^\top v_j)^2$, which equals the first-order P&L variance when the changes have exactly that rank.
+
+## 8. Volatility products
+
+### 8.1 Caps, floors and swaptions
+
+A caplet on a term index fixing at $T$ for the period $[t_s, t_e]$ pays $\tau(L - K)^+$ at $t_e$. Under the $t_e$-forward measure $L$ is a martingale, so its value is $P(t_e)\,\tau\,\mathrm{Black}(F, K, T, \sigma)$, with $F$ the forward from the projection curve and $P$ from the discount curve. `CapFloor.price` accepts Black, shifted Black or normal (Bachelier) vols, either one flat number or a function $\sigma(T, K)$. `cap_floor` skips the first period by default, since it is already fixed: a 5Y EURIBOR6M cap has 9 caplets. Caps minus floors at the same strike equal the floating leg minus $K$ times the caplet annuity.
+
+A physically settled payer swaption is a call on the forward swap rate $S$ under the annuity measure, worth $A\,\mathrm{Black}(S, K, T, \sigma)$. Cash-settled swaptions use the cash annuity
+
+$$
+\bar A(S) = \sum_{i=1}^{n} \frac{1/m}{(1 + S/m)^i} = \frac{1 - (1 + S/m)^{-n}}{S},
+$$
+
+which `cash_annuity` evaluates without cancellation as $S \to 0$.
+
+### 8.2 SABR
+
+In SABR (Hagan et al., 2002) $dF = \alpha F^\beta dW$ and $d\alpha = \nu\alpha\,dZ$, with $d\langle W, Z\rangle = \rho\,dt$. `SABR.lognormal_vol` gives Hagan's expansion, or Obłój's (2008) correction with `method="obloj"`. The two agree at the money. They differ in the wings even at $T = 0$: with $\alpha = 0.035$, $\beta = 0.5$, $\rho = -0.3$, $\nu = 0.4$ and $F = 0.03$, at $K = F/e$ Hagan gives $0.35902$ and Obłój $0.36024$. `calibrate_sabr` fixes $\beta$ and fits $(\alpha, \rho, \nu)$ to a smile by least squares. If an ATM vol is given, it solves for $\alpha$ from that vol through `alpha_from_atm`, so the ATM quote is matched exactly. A shift $s$ applies the model to $F + s$, for negative rates.
+
+### 8.3 Arbitrage-free SABR
+
+At long expiries and low rates, Hagan's formula implies a negative density near zero. `ArbitrageFreeSABR` instead solves the effective one-dimensional forward equation of Hagan et al. (2014) for the density, with absorbing mass at the boundary, using the variable $z$ and the Lawson–Swayne scheme of Le Floc'h & Kennedy (2017):
+
+$$
+\frac{\partial Q}{\partial T} = \frac{\partial^2 (M Q)}{\partial F^2}, \qquad M = \tfrac12 D(F)^2 E(F, T).
+$$
+
+Mass and the forward are conserved to rounding error. For $\alpha = 0.02$, $\beta = 0.5$, $\rho = -0.3$, $\nu = 0.5$, $F = 1\%$ and $T = 10$, Hagan's prices have a negative density near zero, while the PDE puts $8.74\%$ of the mass at zero. With $\beta = 0$ and $\nu = 0$ the model is Brownian motion absorbed at zero, and the PDE converges to the reflection-principle prices at second order.
+
+`sabr_paths` simulates the model itself, with absorption at zero. With $\beta = 0$ it adds a Brownian-bridge crossing test, which removes the $O(\sqrt{\Delta t})$ bias of checking only at the grid times. The PDE is an expansion of the true dynamics, so at long expiries its prices differ from Monte Carlo by more than sampling error.
