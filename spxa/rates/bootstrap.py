@@ -62,6 +62,48 @@ class BootstrapResult:
         """All curves, the bootstrapped one under its name."""
         return {**self.known, self.name: self.curve}
 
+    # --------------------------------------------------------- sensitivities
+    def _rebuild(self, x: np.ndarray) -> YieldCurve:
+        base = self.base
+        spreads = self.curve.spreads if isinstance(self.curve, SpreadAdjustedCurve) else ()
+        assert base.reference_date is not None
+        return _curve(base.node_times, x, base.scheme, base.reference_date, base.day_count, spreads)
+
+    @property
+    def node_values(self) -> np.ndarray:
+        """:math:`x_j = -\\log P(t_j)` of the (total) curve at the nodes."""
+        return -np.log(np.asarray(self.curve.discount(self.base.node_times), float))
+
+    def jacobian(self, bump: float = 1e-7) -> np.ndarray:
+        r"""Model-quote sensitivities :math:`J_{ij} = \partial q_i / \partial x_j` at the solution.
+
+        Central differences in :math:`x = -\log P` at the nodes. Rows are
+        the helpers in pillar order. Helper :math:`i` cannot depend on
+        nodes beyond its own pillar, and for a local scheme :math:`J` is
+        lower triangular.
+        """
+        x = self.node_values
+        n = x.size
+        J = np.empty((len(self.helpers), n))
+        for j in range(n):
+            e = np.zeros(n)
+            e[j] = bump
+            up = {**self.known, self.name: self._rebuild(x + e)}
+            dn = {**self.known, self.name: self._rebuild(x - e)}
+            J[:, j] = [
+                (h.implied_quote(up) - h.implied_quote(dn)) / (2 * bump) for h in self.helpers
+            ]
+        return J
+
+    def node_sensitivities(self, bump: float = 1e-7) -> np.ndarray:
+        r""":math:`\partial x / \partial q = J^{-1}`, by the implicit function theorem.
+
+        Column :math:`i` is the move of every node value per unit move of
+        quote :math:`i`, with the other quotes held fixed (the
+        re-bootstrapped curve).
+        """
+        return np.linalg.inv(self.jacobian(bump))
+
 
 def _curve(
     times: np.ndarray,
