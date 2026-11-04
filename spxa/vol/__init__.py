@@ -99,7 +99,16 @@ Rough Bergomi calibration
     :func:`calibrate_rbergomi`: smile fit with common random numbers.
 VIX
     :class:`RBergomiVIX`: exact VIX sampling in rough Bergomi.
+Joint SPX/VIX calibration
+    :func:`calibrate_heston_joint`: Heston fit to SPX smiles, VIX futures and VIX options.
 """
+
+from spxa.vol.joint_calibration import (
+    JointFit,
+    SmileQuote,
+    VIXQuote,
+    calibrate_heston_joint,
+)
 
 from spxa.vol.vix import HestonVIX, RBergomiVIX, VIX_WINDOW
 
@@ -393,4 +402,8 @@ __all__ = [
     "HestonVIX",
     "RBergomiVIX",
     "VIX_WINDOW",
+    "JointFit",
+    "SmileQuote",
+    "VIXQuote",
+    "calibrate_heston_joint",
 ]
