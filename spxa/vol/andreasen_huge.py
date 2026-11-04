@@ -43,7 +43,13 @@ from scipy.linalg import solve_banded
 
 from spxa.vol.conventions import total_variance_from_price
 
-__all__ = ["AndreasenHugeSurface", "andreasen_huge_grid", "piecewise_constant_vol"]
+__all__ = [
+    "AndreasenHugeFit",
+    "AndreasenHugeSurface",
+    "andreasen_huge_grid",
+    "calibrate_andreasen_huge",
+    "piecewise_constant_vol",
+]
 
 
 def andreasen_huge_grid(y_max: float = 4.0, n: int = 401, concentration: float = 0.5) -> np.ndarray:
@@ -165,3 +171,89 @@ class AndreasenHugeSurface:
             c = np.asarray(self.normalised_call(kk, T), float)
             out = np.asarray(total_variance_from_price(c, 1.0, np.exp(kk), T), float)
         return float(out) if out.ndim == 0 else out
+
+
+class AndreasenHugeFit:
+    """Result of :func:`calibrate_andreasen_huge`."""
+
+    def __init__(self, surface: AndreasenHugeSurface, errors: list[np.ndarray], nfev: int) -> None:
+        self.surface = surface
+        self.errors = errors
+        self.nfev = nfev
+
+    @property
+    def max_error(self) -> float:
+        """Largest absolute implied-volatility error over all quotes."""
+        return max(float(np.max(np.abs(e))) for e in self.errors)
+
+    @property
+    def rmse(self) -> float:
+        e = np.concatenate(self.errors)
+        return float(np.sqrt(np.mean(e * e)))
+
+
+def _node_subset(k: np.ndarray, max_nodes: Optional[int]) -> np.ndarray:
+    if max_nodes is None or k.size <= max_nodes:
+        return k.copy()
+    idx = np.unique(np.round(np.linspace(0, k.size - 1, max_nodes)).astype(int))
+    return k[idx]
+
+
+def calibrate_andreasen_huge(
+    expiries: Sequence[float],
+    strikes: Sequence[Sequence[float]],
+    vols: Sequence[Sequence[float]],
+    grid: Optional[np.ndarray] = None,
+    max_nodes: Optional[int] = None,
+    weights: Optional[Sequence[Sequence[float]]] = None,
+) -> AndreasenHugeFit:
+    """Fit the local-vol levels expiry by expiry to implied volatilities.
+
+    ``strikes`` are log-forward moneyness :math:`k = \\log(K/F_t)` per
+    expiry and ``vols`` the Black implied volatilities. The nodes of
+    :math:`\\vartheta_i` are the quoted strikes (or ``max_nodes`` of them,
+    evenly spread). Expiry by expiry, a Levenberg–Marquardt least-squares
+    fit in log levels minimises the weighted implied-volatility errors,
+    starting from the previous slice's step, as in Andreasen–Huge.
+    """
+    from scipy.optimize import least_squares
+
+    T = np.asarray(expiries, float)
+    x = andreasen_huge_grid() if grid is None else np.asarray(grid, float)
+    y = np.log(x)
+    c_prev = np.maximum(1.0 - x, 0.0)
+    t_prev = 0.0
+    all_nodes, all_levels, errors = [], [], []
+    nfev = 0
+    for i, t in enumerate(T):
+        k = np.asarray(strikes[i], float)
+        v = np.asarray(vols[i], float)
+        if k.shape != v.shape or np.any(np.diff(k) <= 0):
+            raise ValueError("strikes must be increasing and match the vols")
+        wts = np.ones_like(v) if weights is None else np.asarray(weights[i], float)
+        nodes = _node_subset(k, max_nodes)
+        dt = t - t_prev
+        c_start = c_prev
+
+        def model_vols(log_lev: np.ndarray) -> np.ndarray:
+            var = piecewise_constant_vol(nodes, np.exp(log_lev), y) ** 2
+            c = _implicit_step(x, c_start, var * dt)
+            ck = CubicSpline(y, c)(k)
+            w = np.asarray(total_variance_from_price(ck, 1.0, np.exp(k), t), float)
+            return np.sqrt(np.maximum(w, 0.0) / t)
+
+        def resid(log_lev: np.ndarray) -> np.ndarray:
+            mv = model_vols(log_lev)
+            return np.where(np.isfinite(mv), wts * (mv - v), 10.0)
+
+        guess = np.log(np.interp(nodes, k, v))
+        sol = least_squares(resid, guess, method="lm", xtol=1e-14, ftol=1e-14, gtol=1e-14)
+        nfev += int(sol.nfev)
+        lev = np.exp(sol.x)
+        c_prev = _implicit_step(x, c_start, piecewise_constant_vol(nodes, lev, y) ** 2 * dt)
+        t_prev = t
+        all_nodes.append(nodes)
+        all_levels.append(lev)
+        errors.append(model_vols(sol.x) - v)
+    surface = AndreasenHugeSurface(T, all_nodes, all_levels, grid=x)
+    return AndreasenHugeFit(surface, errors, nfev)

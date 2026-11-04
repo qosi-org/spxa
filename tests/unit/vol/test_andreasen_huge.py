@@ -7,9 +7,12 @@ import pytest
 
 from spxa.market.black import black_price
 from spxa.market.curves import EquityForward
+from spxa.vol import SSVI, PowerLawPhi
 from spxa.vol.andreasen_huge import (
+    AndreasenHugeFit,
     AndreasenHugeSurface,
     andreasen_huge_grid,
+    calibrate_andreasen_huge,
     piecewise_constant_vol,
 )
 from spxa.vol.surface import VolSurface
@@ -91,3 +94,44 @@ def test_validation() -> None:
         AndreasenHugeSurface([0.5], [[0.0], [0.0]], [[0.2]])
     with pytest.raises(ValueError):
         AH.grid_calls(-1.0)
+
+
+SS = SSVI(-0.7, PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t)
+CAL_T = [0.1, 0.25, 0.5, 1.0, 2.0]
+CAL_K = [np.linspace(-2.0, 1.2, 11) * np.sqrt(0.04 * t) for t in CAL_T]
+CAL_V = [np.sqrt(SS.total_variance(k, t) / t) for k, t in zip(CAL_K, CAL_T)]
+
+
+@pytest.fixture(scope="module")
+def fit() -> AndreasenHugeFit:
+    return calibrate_andreasen_huge(CAL_T, CAL_K, CAL_V)
+
+
+def test_calibration_reproduces_every_quote(fit: AndreasenHugeFit) -> None:
+    assert fit.max_error < 1e-10
+    surf = fit.surface
+    for t, k, v in zip(CAL_T, CAL_K, CAL_V):
+        assert np.sqrt(surf.total_variance(k, t) / t) == pytest.approx(v, abs=1e-10)
+
+
+def test_calibrated_surface_between_quotes(fit: AndreasenHugeFit) -> None:
+    surf = fit.surface
+    for t in CAL_T:
+        k = np.linspace(-1.8, 1.0, 15) * np.sqrt(0.04 * t)
+        err = np.sqrt(surf.total_variance(k, t) / t) - np.sqrt(SS.total_variance(k, t) / t)
+        assert np.max(np.abs(err)) < 5e-4
+    prev = None
+    for t in (0.05, 0.1, 0.3, 0.75, 1.0, 1.6, 2.0):
+        c = surf.grid_calls(t)
+        _check_slice(surf.x, c)
+        if prev is not None:
+            assert np.all(c >= prev - 1e-13)  # rounding where c is close to 1
+        prev = c
+
+
+def test_fewer_nodes_than_quotes(fit: AndreasenHugeFit) -> None:
+    coarse = calibrate_andreasen_huge(CAL_T, CAL_K, CAL_V, max_nodes=5)
+    assert all(n.size == 5 for n in coarse.surface.nodes)
+    assert fit.rmse < 1e-12 < coarse.rmse < 2e-3
+    with pytest.raises(ValueError):
+        calibrate_andreasen_huge([1.0], [[0.1, 0.0]], [[0.2, 0.2]])

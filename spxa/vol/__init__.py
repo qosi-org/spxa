@@ -63,11 +63,14 @@ Implied distribution
 Local volatility
     :class:`LocalVolSurface` and :func:`dupire_local_variance`: Dupire's formula in total-variance form.
 Andreasen–Huge
-    :class:`AndreasenHugeSurface`: one implicit Dupire step per expiry, arbitrage-free by construction.
+    :class:`AndreasenHugeSurface`: one implicit Dupire step per expiry, arbitrage-free by construction;
+    :func:`calibrate_andreasen_huge` fits the levels expiry by expiry.
 """
 
 from spxa.vol.andreasen_huge import (
+    AndreasenHugeFit,
     AndreasenHugeSurface,
+    calibrate_andreasen_huge,
     andreasen_huge_grid,
     piecewise_constant_vol,
 )
@@ -239,4 +242,6 @@ __all__ = [
     "AndreasenHugeSurface",
     "andreasen_huge_grid",
     "piecewise_constant_vol",
+    "AndreasenHugeFit",
+    "calibrate_andreasen_huge",
 ]
