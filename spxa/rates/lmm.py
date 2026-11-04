@@ -17,7 +17,9 @@ time-homogeneous abcd form scaled forward by forward,
 
 and the correlation is parametric, :math:`\rho_{ij} = e^{-\beta|T_i - T_j|}`
 or Rebonato's :math:`\rho_\infty + (1 - \rho_\infty)e^{-\beta|T_i - T_j|}`,
-optionally reduced to a few factors by principal components.
+optionally reduced to a few factors by principal components. Swaptions
+are priced by Rebonato's frozen-weights approximation of the swap-rate
+volatility.
 """
 
 from __future__ import annotations
@@ -186,3 +188,50 @@ class LiborMarketModel:
     def caplet_vol(self, i: int) -> float:
         """Black (shifted) volatility of caplet ``i``."""
         return math.sqrt(self.caplet_variance(i) / self.times[i])
+
+    # ------------------------------------------------------------ swaptions
+    def swap_weights(self, alpha: int, beta: int) -> tuple[np.ndarray, float, float]:
+        r"""Weights :math:`w_i = \tau_i P(0, T_{i+1})/A` of the forward swap rate on
+        :math:`[T_\alpha, T_\beta]`, the swap rate :math:`S = \sum w_i L_i` and the annuity :math:`A`."""
+        if not 0 <= alpha < beta <= self.n:
+            raise ValueError("need 0 <= alpha < beta <= n")
+        idx = slice(alpha, beta)
+        pa = self.tau[idx] * self.discounts[alpha + 1 : beta + 1]
+        A = float(pa.sum())
+        w = pa / A
+        return w, float(w @ self.forwards[idx]), A
+
+    def swaption_vol(self, alpha: int, beta: int) -> float:
+        r"""Rebonato's frozen-weights Black volatility of the :math:`T_\alpha \times (T_\beta - T_\alpha)` swaption.
+
+        .. math::
+            \sigma_{\alpha\beta}^2 T_\alpha = \frac{1}{(S + \delta)^2}\sum_{i,j = \alpha}^{\beta - 1}
+            w_i w_j (L_i + \delta)(L_j + \delta)\,\rho_{ij}\int_0^{T_\alpha}\sigma_i\sigma_j\,dt,
+
+        freezing the weights and the forwards at their initial values; the
+        displaced swap rate is then treated as lognormal.
+        """
+        w, S, _ = self.swap_weights(alpha, beta)
+        T = self.times[alpha]
+        if T <= 0:
+            raise ValueError("the swaption has expired")
+        idx = slice(alpha, beta)
+        x = w * (self.forwards[idx] + self.shift)
+        C = self.covariance(0.0, T)[idx, idx]
+        return math.sqrt(float(x @ C @ x) / (S + self.shift) ** 2 / T)
+
+    def swaption(
+        self, alpha: int, beta: int, K: Any, payer: bool = True, notional: float = 1.0
+    ) -> Any:
+        """Swaption on the swap over :math:`[T_\\alpha, T_\\beta]` by Rebonato's formula (Black on the annuity)."""
+        _, S, A = self.swap_weights(alpha, beta)
+        v = self.swaption_vol(alpha, beta)
+        d = self.shift
+        return black_price(
+            S + d,
+            np.asarray(K, float) + d,
+            self.times[alpha],
+            v,
+            A * notional,
+            "call" if payer else "put",
+        )
