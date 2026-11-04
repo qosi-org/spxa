@@ -42,6 +42,7 @@ from typing import Callable
 import numpy as np
 
 from spxa.rates.bermudan import BermudanSwaption
+from spxa.rates.cheyette import Cheyette
 from spxa.rates.hull_white import HullWhite
 from spxa.rates.hw_mc import hull_white_transition
 
@@ -52,6 +53,7 @@ __all__ = [
     "DualBound",
     "andersen_broadie",
     "hull_white_exercise_problem",
+    "cheyette_exercise_problem",
     "lsm",
 ]
 
@@ -253,3 +255,49 @@ def andersen_broadie(
     delta = np.max(Z - pi, axis=0)
     se = math.sqrt(float(delta.var(ddof=1)) / n_outer + result.stderr**2)
     return DualBound(result.price + float(delta.mean()), se, result.price, result.stderr)
+
+
+def cheyette_exercise_problem(
+    model: Cheyette, bermudan: BermudanSwaption, steps_per_year: int = 50
+) -> ExerciseProblem:
+    """Bermudan swaption in Cheyette: state :math:`(x, y)`, stepped as in
+    :func:`~spxa.rates.cheyette_mc.cheyette_paths` (frozen local volatility,
+    trapezoidal :math:`\\int x`), with basis :math:`1, x, x^2, y, u, u^2`."""
+    k = model.kappa
+    scale = max(float(np.abs(cf.amounts).max()) for cf in bermudan.underlyings)
+
+    def step(
+        t0: float, t1: float, X: np.ndarray, rng: np.random.Generator
+    ) -> tuple[np.ndarray, np.ndarray]:
+        n = max(1, math.ceil((t1 - t0) * steps_per_year))
+        h = (t1 - t0) / n
+        e1, e2 = math.exp(-k * h), math.exp(-2 * k * h)
+        b1, b2 = -math.expm1(-k * h) / k, -math.expm1(-2 * k * h) / (2 * k)
+        x, y = X[:, 0].copy(), X[:, 1].copy()
+        ix = np.zeros_like(x)
+        for j in range(n):
+            s = model.local_vol(t0 + j * h, x)
+            xn = e1 * x + b1 * y + s * math.sqrt(b2) * rng.standard_normal(x.shape)
+            y = e2 * y + s * s * b2
+            ix += 0.5 * (x + xn) * h
+            x = xn
+        c = model.curve
+        det = float(c.discount(t1)) / float(c.discount(t0))
+        return np.column_stack([x, y]), det * np.exp(-ix)
+
+    def value(k_: int, X: np.ndarray) -> np.ndarray:
+        cf, tk = bermudan.underlyings[k_], float(bermudan.exercise_times[k_])
+        P = model.discount_bond(tk, cf.times[None, :], X[:, :1], X[:, 1:])
+        return np.asarray(P, float) @ cf.amounts
+
+    def exercise_value(k_: int, X: np.ndarray) -> np.ndarray:
+        return np.maximum(value(k_, X), 0.0)
+
+    def basis(k_: int, X: np.ndarray) -> np.ndarray:
+        x, y = X[:, 0] / 0.01, X[:, 1] / 1e-4
+        u = value(k_, X) / scale
+        return np.column_stack([np.ones_like(x), x, x * x, y, u, u * u])
+
+    return ExerciseProblem(
+        np.asarray(bermudan.exercise_times, float), np.zeros(2), step, exercise_value, basis
+    )

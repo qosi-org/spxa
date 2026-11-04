@@ -156,6 +156,7 @@ from spxa.rates.lsm import (
     LSMPolicy,
     LSMResult,
     andersen_broadie,
+    cheyette_exercise_problem,
     hull_white_exercise_problem,
     lsm,
 )
@@ -167,8 +168,9 @@ from spxa.rates.bermudan_engines import (
 
 from spxa.rates.bermudan import (
     BermudanSwaption,
-    bermudan_swaption,
     bermudan_from_times,
+    bermudan_swaption,
+    coterminal_swaptions,
 )
 
 from spxa.rates.sabr_lmm import (
@@ -610,12 +612,14 @@ __all__ = [
     "BermudanSwaption",
     "bermudan_swaption",
     "bermudan_from_times",
+    "coterminal_swaptions",
     "bermudan_pde",
     "bermudan_tree",
     "ExerciseProblem",
     "LSMPolicy",
     "LSMResult",
     "hull_white_exercise_problem",
+    "cheyette_exercise_problem",
     "andersen_broadie",
     "DualBound",
     "lsm",

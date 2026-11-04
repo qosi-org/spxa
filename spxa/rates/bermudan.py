@@ -29,8 +29,9 @@ from spxa.market.curves import YieldCurve
 from spxa.rates.cashflows import IborCoupon
 from spxa.rates.model_cashflows import ModelCashflows, coupon_cashflows
 from spxa.rates.swaps import Swap
+from spxa.rates.swaptions import Swaption
 
-__all__ = ["BermudanSwaption", "bermudan_swaption", "bermudan_from_times"]
+__all__ = ["BermudanSwaption", "bermudan_from_times", "bermudan_swaption", "coterminal_swaptions"]
 
 
 @dataclass(frozen=True)
@@ -141,3 +142,22 @@ def bermudan_from_times(
         amounts[-1] -= sign * notional
         under.append(ModelCashflows(np.r_[t, p], np.r_[sign * notional, amounts]))
     return BermudanSwaption(np.asarray(exercise_times, float), tuple(under))
+
+
+def coterminal_swaptions(swap: Swap, discount: YieldCurve, lockout: int = 1) -> list[Swaption]:
+    """The European swaptions into each co-terminal swap of :func:`bermudan_swaption`.
+
+    They share the Bermudan's exercise dates and underlyings exactly, which
+    makes them the natural calibration set for a one-factor model.
+    """
+    fixed: list[Any] = list(swap.fixed)
+    floating: list[Any] = list(swap.floating)
+    out = []
+    for c in fixed[lockout:]:
+        flt = [f for f in floating if f.start >= c.start]
+        fix = flt[0].fixing if isinstance(flt[0], IborCoupon) else c.start
+        if discount.time(fix) <= 0:
+            continue
+        sub = Swap([f for f in fixed if f.start >= c.start], flt, swap.payer)
+        out.append(Swaption(sub, fix))
+    return out
