@@ -103,7 +103,16 @@ Joint SPX/VIX calibration
     :func:`calibrate_heston_joint`: Heston fit to SPX smiles, VIX futures and VIX options.
 Discrete marginals
     :func:`marginal_from_calls`: laws on a strike grid and the convex order.
+Martingale optimal transport
+    :func:`mot_bounds`: model-free bounds by linear programming, with dual superhedges.
 """
+
+from spxa.vol.mot import (
+    MOTResult,
+    mot_bounds,
+    mot_solve,
+    ot_solve,
+)
 
 from spxa.vol.marginals import (
     DiscreteMarginal,
@@ -415,4 +424,8 @@ __all__ = [
     "calibrate_heston_joint",
     "DiscreteMarginal",
     "marginal_from_calls",
+    "MOTResult",
+    "mot_bounds",
+    "mot_solve",
+    "ot_solve",
 ]
