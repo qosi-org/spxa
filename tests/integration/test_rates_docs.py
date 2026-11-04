@@ -50,6 +50,8 @@ def test_doc_mentions_the_checked_numbers() -> None:
         "$3/360$",
         "31 December 2024 to 2 January 2025",
         "30 December 2022 to 2 January 2023",
+        "-5e^{-0.15} = -4.30354",
+        "5^3 = 125",
     ):
         assert s in text, s
 
@@ -292,3 +294,54 @@ class TestCurveConstruction:
                 "2024-01-15",
                 ["2024-01-31", "2024-01-31", "2024-02-05", "2024-02-06"],
             )
+
+
+class TestCurveRisk:
+    flat = FlatCurve(0.03, reference_date=REF, day_count="ACT/365F")
+
+    def test_zero_coupon_key_rate(self) -> None:
+        risk = r.key_rate_deltas(
+            lambda c: float(c["discount"].discount(5.0)), {"discount": self.flat}, [1, 2, 5, 10]
+        )
+        assert round(risk.deltas[2], 5) == -4.30354
+        assert risk.deltas[2] == pytest.approx(-5 * math.exp(-0.15), rel=1e-7)
+        assert risk.deltas[[0, 1, 3]] == pytest.approx([0, 0, 0], abs=1e-12)
+
+    def test_par_swap_quote_deltas_and_hedge(self) -> None:
+        from tests.unit.rates.test_bootstrap import MARKET, _estr_helpers
+
+        hs = _estr_helpers(MARKET)
+        fit = r.bootstrap_curve(hs, "2024-01-15", r.LogLinearDiscount())
+        h = hs[5]
+        par = h.swap.with_fixed_rate(h.quote)
+
+        def pv(c):  # type: ignore[no-untyped-def]
+            return par.pv(c["discount"], c["discount"])
+
+        risk = r.quote_deltas(pv, fit)
+        a = par.annuity(fit.curve)
+        assert risk.deltas == pytest.approx(a * (np.arange(len(hs)) == 5), abs=1e-9)
+        res = r.hedge_notionals(np.array([2.0, -1.0]), np.diag([0.5, 4.0]))
+        assert res.notionals == pytest.approx([-4.0, 0.25]) and res.residual_norm < 1e-15
+
+    def test_explain_remainder(self) -> None:
+        t = np.array([1.0, 2.0, 5.0])
+        c0 = r.PiecewiseCurve(t, np.exp(-0.03 * t), reference_date=REF)
+        x = -np.log(c0.node_discounts)
+        dx = 1e-3
+        c1 = r.with_node_values(c0, x + dx * (t == 5.0))
+        ex = r.pnl_explain(
+            lambda c: float(c["discount"].discount(5.0)), {"discount": c0}, {"discount": c1}
+        )
+        assert ex.unexplained == pytest.approx(-math.exp(-0.15) * dx**3 / 6, rel=2e-3)
+
+    def test_pca_factor_variance(self) -> None:
+        rng = np.random.default_rng(0)
+        tenors = np.array([1.0, 2, 5, 10, 30])
+        v, _ = np.linalg.qr(rng.normal(size=(5, 2)))
+        changes = rng.normal(size=(300, 2)) @ np.diag([8e-4, 3e-4]) @ v.T
+        pca = r.curve_pca(changes, tenors, n_components=2, differences=False)
+        level, slope = pca.components.T
+        assert level.sum() > 0 and slope[-1] > slope[0]
+        d = rng.normal(size=5)
+        assert pca.factor_variance(d) == pytest.approx(np.var(changes @ d, ddof=1), rel=1e-10)
