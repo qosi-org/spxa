@@ -97,7 +97,14 @@ Rough Bergomi
     :func:`rbergomi_paths`: hybrid-scheme simulation with conditional pricing.
 Rough Bergomi calibration
     :func:`calibrate_rbergomi`: smile fit with common random numbers.
+VIX
+    :class:`RBergomiVIX`: exact VIX sampling in rough Bergomi.
 """
+
+from spxa.vol.vix import (
+    RBergomiVIX,
+    VIX_WINDOW,
+)
 
 from spxa.vol.rbergomi_calibration import (
     RBergomiFit,
@@ -386,4 +393,6 @@ __all__ = [
     "rbergomi_paths",
     "RBergomiFit",
     "calibrate_rbergomi",
+    "RBergomiVIX",
+    "VIX_WINDOW",
 ]
