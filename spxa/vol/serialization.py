@@ -16,7 +16,8 @@ Supported types:
   and :class:`PriceInterpolatedSurface` / :class:`VarianceInterpolatedSurface`
   of serialisable slices. Flat surfaces are covered too.
 * **Market objects:** :class:`VolSurface`, an :class:`EquityForward`
-  without discrete dividends, :class:`FlatCurve`, and
+  without discrete dividends, the :class:`ForwardTermStructure` of a
+  surface built from quotes, :class:`FlatCurve`, and
   :class:`PiecewiseCurve` (any scheme of :mod:`spxa.rates.interpolation`).
 
 Callables (for example a lambda ``theta``) cannot be serialised and raise
@@ -54,6 +55,7 @@ def _dc_name(dc: Any) -> str:
 def _registry() -> dict[str, tuple[type, Callable[[Any], dict], Callable[[dict], Any]]]:
     from spxa.market.curves import EquityForward, FlatCurve
     from spxa.rates import interpolation as interp
+    from spxa.vol.build import ForwardTermStructure
     from spxa.vol.essvi import ESSVI, ESSVISlice
     from spxa.vol.interpolation import PriceInterpolatedSurface, VarianceInterpolatedSurface
     from spxa.vol.ssvi import SSVI, ATMVarianceCurve, HestonLikePhi, PowerLawPhi
@@ -157,6 +159,16 @@ def _registry() -> dict[str, tuple[type, Callable[[Any], dict], Callable[[dict],
     reg["EquityForward"] = (EquityForward, fwd_out, fwd_in)
     reg["FlatCurve"] = (FlatCurve, lambda o: curve_out(o), curve_in)
     reg["PiecewiseCurve"] = (interp.PiecewiseCurve, lambda o: curve_out(o), curve_in)
+    reg["ForwardTermStructure"] = (
+        ForwardTermStructure,
+        lambda o: {
+            "expiries": _floats(o.expiries),
+            "forwards": _floats(o.forwards),
+            "discounts": _floats(o.discounts),
+            "spot": o.spot,
+        },
+        lambda d: ForwardTermStructure(d["expiries"], d["forwards"], d["discounts"], d["spot"]),
+    )
     reg["VolSurface"] = (
         VolSurface,
         lambda o: {"model": to_dict(o.model), "forward": to_dict(o.forward_curve)},

@@ -75,6 +75,22 @@ def test_interpolated_surfaces() -> None:
             assert np.array_equal(back.implied_vol(K, T), surf.implied_vol(K, T))
 
 
+def test_surface_built_from_quotes() -> None:
+    from spxa.vol.build import ForwardTermStructure, build_vol_surface
+    from tests.unit.vol.test_build import QUOTES
+
+    surf = build_vol_surface(QUOTES, method="svi").surface
+    assert isinstance(surf.forward_curve, ForwardTermStructure)
+    back = loads(dumps(surf))
+    K, T = np.linspace(70.0, 140.0, 15), np.array([0.05, 0.3, 1.0, 1.7])
+    for t in T:
+        assert np.array_equal(back.implied_vol(K, t), surf.implied_vol(K, t))
+        assert back.forward(t) == surf.forward(t) and back.discount(t) == surf.discount(t)
+    no_spot = ForwardTermStructure([0.5, 1.0], [101.0, 102.0], [0.99, 0.98])
+    again = loads(dumps(no_spot))
+    assert again.spot is None and again.forward(0.25) == no_spot.forward(0.25)
+
+
 def test_errors() -> None:
     with pytest.raises(TypeError):
         to_dict(SSVI(-0.5, PowerLawPhi(1.0, 0.4), lambda t: 0.04 * t))  # callable theta
