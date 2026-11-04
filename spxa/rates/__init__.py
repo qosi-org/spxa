@@ -137,10 +137,11 @@ LMM Monte Carlo
 LMM calibration
     :func:`calibrate_lmm`: abcd and k_i to caplets, correlation to swaptions.
 Forward market model
-    :class:`ForwardMarketModel`: backward-looking compounded rates with decaying volatility.
+    :class:`ForwardMarketModel`: backward-looking compounded rates with decaying volatility;
+    :func:`fmm_paths` simulates them under the spot measure.
 """
 
-from spxa.rates.fmm import ForwardMarketModel
+from spxa.rates.fmm import FMMPaths, ForwardMarketModel, fmm_paths
 
 from spxa.rates.lmm_calibration import (
     LMMCalibration,
@@ -565,4 +566,6 @@ __all__ = [
     "calibrate_lmm",
     "fit_abcd",
     "ForwardMarketModel",
+    "FMMPaths",
+    "fmm_paths",
 ]

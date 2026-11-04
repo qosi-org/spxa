@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 
-from spxa.rates.fmm import ForwardMarketModel
+from spxa.rates.fmm import ForwardMarketModel, fmm_paths
 from spxa.rates.lmm import AbcdVol, LiborMarketModel
 from tests.unit.rates.test_lmm import CURVE, LMM, TIMES, VOL
 
@@ -39,3 +39,13 @@ def test_covariance_with_decay_against_quadrature() -> None:
     # before any accrual starts the FMM and the LMM agree
     np.testing.assert_allclose(FMM.covariance(0.0, 0.9), LMM.covariance(0.0, 0.9), rtol=1e-12)
     assert FMM.sigma(TIMES[3] + 0.25)[3] == pytest.approx(0.5 * VOL(0.0))
+
+
+def test_simulated_caplets_and_bonds() -> None:
+    p = fmm_paths(FMM, 20_000, 2, seed=3)
+    for k in (1, 10, 20):
+        d = p.deflator(k)
+        assert abs(d.mean() - CURVE.discount(TIMES[k])) < 3 * d.std(ddof=1) / np.sqrt(d.size)
+    for i, K in ((2, 0.03), (12, 0.035)):
+        pv, se = p.price(FMM.tau[i] * np.maximum(p.fixings[:, i] - K, 0.0), i + 1)
+        assert abs(pv - FMM.caplet(i, K)) < 3 * se
