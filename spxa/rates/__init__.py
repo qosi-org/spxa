@@ -128,7 +128,11 @@ Cheyette swaptions
     :func:`cheyette_swaption`: displaced-diffusion projection with Piterbarg's skew averaging.
 Cheyette calibration
     :func:`calibrate_cheyette`: piecewise levels and a global skew fitted to swaption smiles.
+Cheyette PDE
+    :class:`CheyettePDE`: split semi-Lagrangian / Crank-Nicolson solver in (x, y) with exercise.
 """
+
+from spxa.rates.cheyette_pde import CheyettePDE
 
 from spxa.rates.cheyette_calibration import CheyetteCalibration, calibrate_cheyette
 
@@ -520,4 +524,5 @@ __all__ = [
     "swap_rate_dynamics",
     "CheyetteCalibration",
     "calibrate_cheyette",
+    "CheyettePDE",
 ]
