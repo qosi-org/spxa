@@ -91,3 +91,16 @@ def test_mot_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "hedge P&L: mean 0.0150, worst -0.0009" in out
     assert "  [0.0634, 0.0778]" in out
     assert "nan" not in out
+
+
+def test_model_risk_example(capsys: pytest.CaptureFixture[str]) -> None:
+    out = _run("vol_model_risk_example.py", capsys)
+    assert "   1.000  0.0569  0.2386      0.0494      0.0430    0.0615" in out
+    assert "VIX index 21.61; 1y-2y forward variance swap 0.0729" in out
+    assert "T=1.0   vol swap 0.2090  sqrt(K_var) 0.2228  convexity 0.0138" in out
+    assert "1y ATM call      0.0818   0.0827   0.0010   False" in out
+    assert "fwd-start ATM    0.0561   0.0590   0.0029   True" in out
+    assert "variance swap    0.0564   0.0565   0.0002   False" in out
+    assert "vol swap         0.2167   0.2248   0.0080   True" in out
+    assert "[0.0271, 0.0735]: family inside True, share 6%" in out
+    assert "nan" not in out
