@@ -118,7 +118,16 @@ Variance swaps
 
 Model risk
     :class:`ModelRisk`: Cont's coherent and penalised model-risk measures.
+Risk adapter
+    :func:`surface_price` (:class:`SurfaceQuote`) and :func:`surface_pricing_fn` value
+    :mod:`spxa.risk` options on a surface for stress testing.
 """
+
+from spxa.vol.risk_adapter import (
+    SurfaceQuote,
+    surface_price,
+    surface_pricing_fn,
+)
 
 from spxa.vol.model_risk import ModelRisk, smile_rmse
 
@@ -493,4 +502,7 @@ __all__ = [
     "heston_integrated_variance_laplace",
     "heston_volatility_swap",
     "ModelRisk",
+    "SurfaceQuote",
+    "surface_price",
+    "surface_pricing_fn",
 ]
