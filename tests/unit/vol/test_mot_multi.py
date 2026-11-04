@@ -44,12 +44,14 @@ def test_asian_bounds_contain_black_scholes() -> None:
     lo, _ = mot_multi(MS, asian, "min")
     hi, plan = mot_multi(MS, asian, "max")
     X1, X2, X3 = np.meshgrid(*[m.points for m in MS], indexing="ij")
+    # marginal and martingale constraints hold to the LP feasibility tolerance (1e-10);
+    # tail weights below it (here 6e-12) may come back as exactly zero
     for t, m in enumerate(MS):
         np.testing.assert_allclose(
-            plan.sum(axis=tuple(a for a in range(3) if a != t)), m.weights, atol=1e-12
+            plan.sum(axis=tuple(a for a in range(3) if a != t)), m.weights, atol=1e-10
         )
-    assert np.abs((plan * (X2 - X1)).sum(axis=(1, 2))).max() < 1e-12
-    assert np.abs((plan * (X3 - X2)).sum(axis=2)).max() < 1e-12
+    assert np.abs((plan * (X2 - X1)).sum(axis=(1, 2))).max() < 1e-10
+    assert np.abs((plan * (X3 - X2)).sum(axis=2)).max() < 1e-10
     rng = np.random.default_rng(0)
     z = rng.standard_normal((200_000, 3)) * 0.2 * np.sqrt(0.5)
     S = np.exp(np.cumsum(z - 0.01, axis=1))

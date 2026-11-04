@@ -25,14 +25,15 @@ def test_strong_duality_and_hedge_inequalities() -> None:
     X, Y = np.meshgrid(MU.points, NU.points, indexing="ij")
     for sense in ("max", "min"):
         r = mot_solve(MU, NU, straddle, sense)
-        assert r.dual_value == pytest.approx(r.value, abs=1e-12)
+        # HiGHS solves to primal/dual feasibility 1e-10, so LP identities hold to that
+        assert r.dual_value == pytest.approx(r.value, abs=1e-10)
         gap = r.phi[:, None] + r.psi[None, :] + r.h[:, None] * (Y - X) - np.abs(Y - X)
         assert (gap.min() > -1e-10) if sense == "max" else (gap.max() < 1e-10)
         # the plan is a martingale coupling of the two marginals
         assert r.plan.min() > -1e-9
-        np.testing.assert_allclose(r.plan.sum(1), MU.weights, atol=1e-12)
-        np.testing.assert_allclose(r.plan.sum(0), NU.weights, atol=1e-12)
-        assert np.abs((r.plan * (Y - X)).sum(1)).max() < 1e-12
+        np.testing.assert_allclose(r.plan.sum(1), MU.weights, atol=1e-10)
+        np.testing.assert_allclose(r.plan.sum(0), NU.weights, atol=1e-10)
+        assert np.abs((r.plan * (Y - X)).sum(1)).max() < 1e-10
         assert r.hedge(X[3, 5], Y[3, 5]) == pytest.approx(
             gap[3, 5] + abs(Y[3, 5] - X[3, 5]), abs=1e-14
         )
@@ -65,8 +66,8 @@ def test_model_independent_claims_have_zero_width() -> None:
 def test_degenerate_first_marginal_and_validation() -> None:
     dirac = DiscreteMarginal(np.array([1.0]), np.array([1.0]))
     lo, hi = mot_bounds(dirac, NU, straddle)
-    assert lo == pytest.approx(hi, abs=1e-12) and hi == pytest.approx(
-        NU.expect(lambda y: np.abs(y - 1)), abs=1e-12
+    assert lo == pytest.approx(hi, abs=1e-10) and hi == pytest.approx(
+        NU.expect(lambda y: np.abs(y - 1)), abs=1e-10
     )
     with pytest.raises(ValueError):
         mot_solve(NU, MU, straddle)  # wrong convex order
