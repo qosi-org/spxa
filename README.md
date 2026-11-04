@@ -31,6 +31,8 @@
   - [6. High-Frequency Market Making & Inventory Control](#6-high-frequency-market-making--inventory-control)
   - [7. Model Morphing](#7-model-morphing)
   - [8. PDE & PIDE Solvers](#8-pde--pide-solvers)
+  - [9. Interest Rates](#9-interest-rates)
+  - [10. Volatility Surfaces & Models](#10-volatility-surfaces--models)
 - [Computational Graph Architecture & Duality Engine](#computational-graph-architecture--duality-engine)
 - [Exactness Guarantees & Mathematical Integrity](#exactness-guarantees--mathematical-integrity)
 - [Subpackage Ecosystem](#subpackage-ecosystem)
@@ -79,7 +81,17 @@ When an operation crosses the boundary of the Lévy realm (e.g. state-dependent 
 6. **Rough Volatility & Volterra Calculus (`spxa.rough`, `spxa.graph.rough`)**: Non-Markovian, sub-diffusive stochastic volatility models driven by fractional Brownian motion with Hurst index $H \in (0, 1/2)$. Features Riemann–Liouville singular power kernels, Bennedsen–Lunde–Pakkanen hybrid convolutions, rough Bergomi (rBergomi) with power-law short-time skew blow-up, and fractional Adams–Bashforth–Moulton Riccati solvers.
 7. **Model Morphing (`spxa.morph`, `spxa.graph.morph`)**: Continuous interpolation between any two processes along a chosen geometry. The triplet homotopy $\psi_\alpha = (1-\alpha)\psi_0 + \alpha\psi_1$ stays inside the Lévy class and keeps `EXACT` exactness. Generator, Fisher–Rao geodesic and Wasserstein (displacement) morphs cover diffusions and Gaussian marginals. Dynamic schedules (linear, cosine, smoothstep, sigmoidal, state-threshold) drive regime transitions inside a simulation, and `ModelBarycenter`, `ModelEnsemble` and `SurfaceMorphEngine` average models and volatility surfaces.
 8. **PDE & PIDE Solvers (`spxa.pde`, `spxa.graph.pde`)**: Verified finite-difference pricing for the generators of the zoo. Sinh-stretched grids aligned to strikes and barriers, Crank–Nicolson with Rannacher start-up, and penalty, PSOR, Brennan–Schwartz and Ikonen–Toivanen solvers for early exercise. Covers Black–Scholes (American, Bermudan, barriers, discrete dividends), Dupire local volatility, Večeř Asian options, short-rate bond options, mass-conserving Fokker–Planck densities, exponential-Lévy PIDEs (Merton, Kou, VG, CGMY, NIG) with moment-matched small jumps, and Douglas, Craig–Sneyd, modified Craig–Sneyd and Hundsdorfer–Verwer ADI for Heston and two-asset options. Least-squares Monte Carlo is included as a cross-check. Each scheme's convergence order is tested against closed forms or published references.
-9. **Comprehensive Quantitative Toolchain**:
+9. **Interest Rates (`spxa.rates`, `spxa.market`, `spxa.graph.rates`)**: Instruments on real calendar dates, with ISDA overnight compounding, deposits, FRAs, futures, swaps and bonds.
+   - **Curves:** dual-curve bootstrapping (log-linear, monotone cubic and Hagan–West monotone convex), turns, meeting dates and Nelson–Siegel–Svensson. Node, quote and key-rate risk, hedging and PCA.
+   - **Volatility products:** caps, floors, swaptions and CMS. SABR, with Hagan, Obłój and the arbitrage-free density PDE, plus stripping and a swaption cube.
+   - **Term-structure models:** Hull–White, G2++, Black–Karasinski and CIR++, with trees, PDEs, exact simulation and calibration. Gaussian HJM, Cheyette, and the LIBOR, forward and SABR-LIBOR market models.
+   - **Bermudans and inflation:** Bermudan swaptions by PDE, tree and least squares with Andersen–Broadie duality. Inflation: TIPS reference CPI, seasonal ZCIS curves, linkers and Jarrow–Yildirim.
+10. **Volatility Modelling (`spxa.vol`, `spxa.graph.vol`)**: Arbitrage-free SVI, SSVI and eSSVI surfaces from option quotes, with repair and smoothing.
+    - **Local and stochastic local volatility:** Dupire and Andreasen–Huge. SLV leverage by a 2D Fokker–Planck ADI solver or by particles.
+    - **Rough volatility and VIX:** rough and lifted Heston, rough Bergomi, VIX futures and options, and joint SPX/VIX calibration.
+    - **Model-free bounds and model risk:** martingale optimal transport bounds with dual hedges, by LP or Sinkhorn. Variance, gamma and volatility swaps, and Cont's model-risk measures.
+    - **Connections:** adapters value `spxa.risk` books on curves and surfaces for stress testing, and zoo processes produce implied surfaces.
+11. **Comprehensive Quantitative Toolchain**:
    - **Stochastic Optimal Control (`spxa.control`)**: Merton portfolio problems, Avellaneda–Stoikov high-frequency market making, Almgren–Chriss optimal liquidation, and finite-difference Hamilton–Jacobi–Bellman (HJB) viscosity solvers.
    - **Econometric Calibration & Filtering (`spxa.calibration`)**: Volatility surface calibrators, maximum likelihood (MLE), GMM, Kalman and Particle state-space filters, Godambe sandwich standard errors, and surface arbitrage diagnostics.
    - **Copulas & Multi-Asset Dependence (`spxa.copula`)**: Archimedean (Clayton, Gumbel, Frank, Joe, AMH), Elliptic (Gaussian, Student-$t$), and Extreme Value copulas with tail dependence analysis.
@@ -301,6 +313,70 @@ print(res.__story__())
 
 `spxa.pde.pde_price` values `spxa.risk` instruments for stress testing, and `spxa.graph.pde` puts PDE prices into computational graphs. See [Theory: PDE and PIDE methods](docs/theory/pde.md).
 
+### 9. Interest Rates
+
+Bootstrap a curve, read a SABR smile, price a Bermudan on a Hull–White tree and the year-on-year convexity of an inflation swap:
+
+```python
+import math
+
+from spxa.market import FlatCurve
+from spxa.rates import (ESTR, SABR, HullWhite, HullWhiteTree, JarrowYildirim, MonotoneConvex,
+                        SwapHelper, bermudan_from_times, bermudan_tree, bootstrap_curve, ois_swap)
+
+# 1. ESTR discount curve from OIS quotes, exact to every quote
+quotes = {"1Y": 3.56, "2Y": 3.02, "5Y": 2.60, "10Y": 2.58, "30Y": 2.42}
+helpers = [SwapHelper(ois_swap("2024-01-15", t, 0.0, ESTR), q / 100) for t, q in quotes.items()]
+fit = bootstrap_curve(helpers, "2024-01-15", MonotoneConvex())
+print(f"{fit.curve.zero_rate(10.0):.4%}", fit.max_residual < 1e-12)  # 2.5747% True
+
+# 2. SABR: Hagan's lognormal vols at three strikes
+sabr = SABR(alpha=0.035, beta=0.5, rho=-0.3, nu=0.4)
+print([round(float(sabr.lognormal_vol(0.03, K, 5.0)), 4) for K in (0.02, 0.03, 0.04)])  # [0.2709, 0.2111, 0.1905]
+
+# 3. Annual Bermudan payer exercisable in years 1-4 into a swap ending in year 5, vs its first European
+hw = HullWhite(FlatCurve(0.03), a=0.05, sigma=0.01)
+berm = bermudan_from_times([1.0, 2.0, 3.0, 4.0], 5.0, fixed_rate=0.03, notional=100.0)
+tree = HullWhiteTree(hw, horizon=5.0, n_steps=500)
+print(round(bermudan_tree(tree, berm), 4), round(bermudan_tree(tree, berm.restrict([0])), 4))  # 1.8758 1.3972
+
+# 4. Jarrow-Yildirim: the 10y YoY swap rate and its convexity against forward CPI ratios
+jy = JarrowYildirim(FlatCurve(0.03), FlatCurve(0.01), 100.0, 0.1, 0.01, 0.05, 0.008, 0.012, 0.6, 0.2, -0.3)
+rate = jy.yoy_swap_rate(range(1, 11))
+print(f"{rate:.4%}", round(1e4 * (rate - math.expm1(0.02)), 2))  # 1.9904% -2.98
+```
+
+`curve_price` values `spxa.risk` swaps on curves for stress testing, and `spxa.graph.rates` gives key-rate sensitivities in one reverse pass. See [Theory: Interest rates](docs/theory/rates.md).
+
+### 10. Volatility Surfaces & Models
+
+An SSVI surface with its local volatility, the model-free variance swap and VIX, Heston VIX futures and the implied surface of a zoo process:
+
+```python
+from spxa.market.curves import EquityForward
+from spxa.vol import SSVI, Heston, HestonVIX, PowerLawPhi, VolSurface, variance_swap_strike, vix_index
+from spxa.zoo.levy import MertonJumpDiffusion
+
+# 1. An arbitrage-free SSVI surface on an equity forward: implied and Dupire local vol at K = 90, T = 1
+surface = VolSurface(SSVI(-0.7, PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t),
+                     EquityForward(100.0, 0.03, dividend_yield=0.01))
+print(round(float(surface.implied_vol(90.0, 1.0)), 4), round(float(surface.local_vol(90.0, 1.0)), 4))  # 0.2412 0.2789
+
+# 2. Model-free 1y variance swap strike (as a vol) and the VIX of the surface
+print(round(variance_swap_strike(surface, 1.0) ** 0.5, 4), round(vix_index(surface), 2))  # 0.2386 21.61
+
+# 3. Heston VIX futures in closed form
+heston = Heston(v0=0.04, kappa=1.5, theta=0.04, xi=0.5, rho=-0.7)
+print(round(float(HestonVIX(heston).futures(0.5)), 4))  # 0.1706
+
+# 4. The implied surface of a Merton jump diffusion from the zoo: 1y ATM vol and the SVI misfit in bp
+merton = MertonJumpDiffusion(sigma=0.15, rate=0.5, jump_mean=-0.1, jump_std=0.15)
+fit = merton.to_vol_surface(100.0, 0.03, [0.25, 0.5, 1.0, 2.0], dividend_yield=0.01)
+print(round(float(fit.surface.atm_vol(1.0)), 4), round(fit.max_vol_error * 1e4, 1))  # 0.1869 12.4
+```
+
+The package also covers SLV, rough Heston and Bergomi, martingale optimal transport bounds and model risk. `surface_price` values `spxa.risk` options on a surface, and `spxa.graph.vol` puts SVI and surface prices into graphs. See [Theory: Volatility](docs/theory/vol.md).
+
 ---
 
 ## Computational Graph Architecture & Duality Engine
@@ -391,6 +467,9 @@ Unlike numerical libraries that silently approximate or introduce uncontrolled t
 | **Rough Volatility** | `spxa.rough` | Fractional Brownian motion and Volterra calculus | `FractionalKernel`, `RoughBergomi`, `FractionalRiccatiSolver` |
 | **Model Morphing** | `spxa.morph` | Exact and geometric interpolation between processes, regime schedules, and barycenters | `MorphedProcess`, `DynamicMorphedProcess`, `CosineSchedule`, `ModelBarycenter`, `gaussian_rao_distance` |
 | **PDE & PIDE Solvers** | `spxa.pde` | Finite differences for pricing, densities, Lévy PIDEs and ADI | `BlackScholesPDE`, `HestonPDE`, `LevyPIDE`, `FokkerPlanck1D`, `ADISolver`, `pde_price` |
+| **Market Conventions** | `spxa.market` | Dates, day counts, calendars, schedules, curves, Black/Bachelier and implied vols, option quotes | `Schedule`, `DayCount`, `Calendar`, `FlatCurve`, `EquityForward`, `black_price`, `implied_black_volatility` |
+| **Interest Rates** | `spxa.rates` | Curves, caps/swaptions/SABR, short-rate, HJM, Cheyette and market models, Bermudans, inflation | `bootstrap_curve`, `Swap`, `SABR`, `HullWhite`, `G2PP`, `Cheyette`, `LiborMarketModel`, `bermudan_swaption`, `JarrowYildirim` |
+| **Volatility** | `spxa.vol` | Arbitrage-free surfaces, local/stochastic local/rough volatility, VIX, MOT bounds, variance swaps, model risk | `build_vol_surface`, `VolSurface`, `LocalVolSurface`, `calibrate_slv`, `RoughHeston`, `mot_solve`, `variance_swap_strike`, `ModelRisk` |
 | **Stochastic Control** | `spxa.control` | Portfolio optimization, market making, and HJB solvers | `MertonPortfolio`, `AvellanedaStoikov`, `AlmgrenChriss`, `HJBSolver` |
 | **Model Calibration** | `spxa.calibration` | Volatility surface calibration, MLE, GMM, and filtering | `HestonCalibrator`, `CIRMaximumLikelihood`, `UnscentedKalmanFilter`, `ParticleFilter`, `sandwich_covariance_matrix` |
 | **Copula & Dependence** | `spxa.copula` | Multi-asset dependence and extreme value copulas | `ClaytonCopula`, `GumbelCopula`, `GaussianCopula`, `CoupledProcess` |
@@ -481,6 +560,10 @@ mypy spxa
 - **[Theory: Rough Volatility](docs/theory/rough_volatility.md)**: Volterra fBM, rough Bergomi and its ATM skew, and the rough Heston fractional Riccati equation.
 - **[Theory: Copulas & Dependence](docs/theory/copulas.md)**: Sklar's theorem, dependence measures, copula families, estimation, and coupled simulation.
 - **[Theory: Stochastic Control](docs/theory/stochastic_control.md)**: HJB, LQG, Merton, Almgren–Chriss, Avellaneda–Stoikov, and finite-difference HJB.
+- **[Theory: PDE & PIDE Methods](docs/theory/pde.md)**: Grids, θ-schemes, early exercise, Lévy PIDEs, Fokker–Planck and ADI, with convergence orders.
+- **[Theory: Market Conventions](docs/theory/market.md)**: Day counts, calendars, schedules, curves, Black and Bachelier formulas, implied volatility and option quotes.
+- **[Theory: Interest Rates](docs/theory/rates.md)**: Overnight compounding, curve construction and risk, SABR, short-rate, HJM, Cheyette and market models, Bermudans and inflation.
+- **[Theory: Volatility](docs/theory/vol.md)**: SVI/SSVI surfaces, local, stochastic local and rough volatility, VIX, martingale optimal transport, variance swaps and model risk.
 - **[Theory: Estimation & Calibration](docs/theory/calibration.md)**: Exact MLE, GMM/ECF, filtering, surface calibration, and statistical inference.
 - **[Computational Graph Deep-Dive](docs/computational_graph.md)**: Architectural guide to DAG compilers, execution backends, and autodiff tapes.
 - **[Interactive Tutorials](docs/tutorials/)**: Jupyter notebooks covering introductory compositions, derivative pricing, and physical systems.
