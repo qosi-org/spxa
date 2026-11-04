@@ -297,3 +297,34 @@ class TestSurfaceConstruction:
         back = v.loads(v.dumps(surf))
         K, T = np.linspace(60, 160, 11), 1.3
         assert np.array_equal(back.implied_vol(K, T), surf.implied_vol(K, T))
+
+
+class TestLocalVolatility:
+    def test_numbers_in_text(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in ("$\\sqrt{0.02}$", "$T = 1.5$", "$bk/\\log(1 + bk/a)$", "tends to $-0.2$"):
+            assert s in text, s
+
+    def test_dupire_arbitrage_and_short_expiry(self) -> None:
+        fwd = EquityForward(100.0, 0.03, dividend_yield=0.01)
+
+        class Calendar:
+            def total_variance(self, k, T):  # type: ignore[no-untyped-def]
+                return 0.04 * T - 0.02 * T * T + 0.0 * np.asarray(k, float)
+
+        lv = v.LocalVolSurface(v.VolSurface(Calendar(), fwd))
+        assert lv.local_vol_k(0.0, 0.5) == pytest.approx(math.sqrt(0.02), abs=1e-12)
+        assert np.isnan(lv.local_vol_k(0.0, 1.5))
+        a, b, k = 0.2, -0.15, np.array([-0.4, 0.3])
+        assert v.bbf_implied_vol(lambda y: a + b * y, k) == pytest.approx(
+            b * k / np.log1p(b * k / a), rel=1e-13
+        )
+
+        class Linear:
+            def total_variance(self, k, T):  # type: ignore[no-untyped-def]
+                return (0.2 - 0.1 * np.asarray(k, float)) ** 2 * T
+
+        lin = v.LocalVolSurface(v.VolSurface(Linear(), fwd))
+        h = 1e-4
+        skew = (lin.local_vol_k(h, 1e-4) - lin.local_vol_k(-h, 1e-4)) / (2 * h)
+        assert skew == pytest.approx(-0.2, rel=2e-4)

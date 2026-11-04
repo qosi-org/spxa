@@ -15,6 +15,7 @@
 | Price-level repair and smoothing | `repair_call_prices`, `call_arbitrage_constraints`, `fengler_smooth`, `fengler_surface` |
 | Delta conventions | `black_delta`, `strike_from_delta`, `atm_dns_strike` |
 | Risk and persistence | `parallel_bump`, `skew_bump`, `expiry_buckets`, `bucketed_vega`, `dumps`, `loads` |
+| Local volatility | `dupire_local_variance`, `LocalVolSurface`, `LocalVolGrid`, `bbf_implied_vol` |
 
 ---
 
@@ -208,3 +209,23 @@ A bump adds $\delta(k, T)$ to the implied volatility at fixed log-moneyness, $w'
 ### 7.4 Simulation and persistence
 
 `VolSurface.terminal_distribution(T)` is the implied law of $\log(S_T/F_T)$ (§5), and `sample_terminal` draws $S_T$ by inverse transform. Monte Carlo then reprices the forward, calls and digitals to within four standard errors, which checks the surface end to end. `dumps` and `loads` serialise surfaces, models, forwards and curves to JSON, with a type tag on each object. The round trip is bit-exact, because JSON writes each float as the shortest decimal that reads back to it.
+
+## 8. Local volatility
+
+### 8.1 Dupire's formula in implied variance
+
+Dupire (1994) showed that exactly one diffusion $dS_t = (r - q)S_t\,dt + \sigma_{\mathrm{loc}}(S_t, t)S_t\,dW_t$ reproduces a given arbitrage-free call surface. In log-forward moneyness $y = \log(K/F_T)$ and total implied variance $w(y, T)$ the formula reads (Gatheral, 2006)
+
+$$
+\sigma^2_{\mathrm{loc}}(K, T) = \frac{\partial_T w}{1 - \dfrac{y}{w}\,\partial_y w + \dfrac14\Bigl(-\dfrac14 - \dfrac1w + \dfrac{y^2}{w^2}\Bigr)(\partial_y w)^2 + \dfrac12\,\partial_{yy} w}.
+$$
+
+Rates and dividends drop out because strikes are measured against the forward. The denominator is Durrleman's $g$ (§1), and the numerator is the forward variance at fixed moneyness (§7.1). The local variance is therefore positive exactly where the surface is free of butterfly and calendar arbitrage. `LocalVolSurface` returns `nan` elsewhere: if $w = (0.04T - 0.02T^2)$ at every $y$, the local vol is $\sqrt{0.02}$ at $T = 1/2$ and undefined at $T = 1.5$. `VolSurface.local_vol` evaluates the formula with five-point differences of any surface. `LocalVolGrid` tabulates it for fast lookups.
+
+As $T \to 0$, the implied vol is the harmonic mean of the local vol between spot and strike (Berestycki, Busca & Florent, 2002):
+
+$$
+\frac{1}{\sigma_{\mathrm{imp}}(k)} = \int_0^1 \frac{du}{\sigma_{\mathrm{loc}}(uk)}.
+$$
+
+`bbf_implied_vol` evaluates this integral. For $\sigma_{\mathrm{loc}} = a + by$ it gives $bk/\log(1 + bk/a)$. Differentiating at $k = 0$ gives the familiar rule that the short-dated local skew is twice the implied skew: for a time-independent smile $\sigma(k) = 0.2 - 0.1k$, the ATM local skew tends to $-0.2$.
