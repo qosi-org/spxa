@@ -148,7 +148,15 @@ Bermudan engines
 Least-squares Monte Carlo
     :func:`lsm`: Longstaff-Schwartz lower bounds for Bermudan exercise;
     :func:`andersen_broadie`: the dual upper bound.
+Inflation
+    :class:`InflationIndex` (lagged, interpolated reference CPI and index ratios) on :class:`CPIFixings`.
 """
+
+from spxa.rates.inflation import (
+    CPIFixings,
+    InflationIndex,
+    month_start,
+)
 
 from spxa.rates.lsm import (
     DualBound,
@@ -623,4 +631,7 @@ __all__ = [
     "andersen_broadie",
     "DualBound",
     "lsm",
+    "CPIFixings",
+    "InflationIndex",
+    "month_start",
 ]
