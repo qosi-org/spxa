@@ -124,7 +124,11 @@ Cheyette
     :class:`Cheyette`: quasi-Gaussian short rate with linear local volatility.
 Cheyette Monte Carlo
     :func:`cheyette_paths`: frozen-coefficient exact stepping of the Cheyette states.
+Cheyette swaptions
+    :func:`cheyette_swaption`: displaced-diffusion projection with Piterbarg's skew averaging.
 """
+
+from spxa.rates.cheyette_swaption import DisplacedSwapRate, cheyette_swaption, swap_rate_dynamics
 
 from spxa.rates.cheyette_mc import CheyettePaths, cheyette_paths
 
@@ -507,4 +511,7 @@ __all__ = [
     "Cheyette",
     "CheyettePaths",
     "cheyette_paths",
+    "DisplacedSwapRate",
+    "cheyette_swaption",
+    "swap_rate_dynamics",
 ]
