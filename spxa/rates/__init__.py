@@ -45,6 +45,9 @@ Bootstrapping
     non-local ones; other curves are passed as ``known``.
     :func:`fit_curves` (:class:`CurveSpec`, :class:`GlobalFitResult`)
     solves several curves at once by Newton's method.
+Curve sets
+    :class:`CurveSet`: named curves with a discount role and index
+    projections; prices swaps and basis swaps by leg index.
 Parametric curves
     :class:`NelsonSiegelSvensson`, :func:`nelson_siegel`,
     :func:`fit_nss_zero_rates` (variable projection) and :func:`fit_nss`
@@ -140,6 +143,7 @@ from spxa.rates.parametric import (
     nelson_siegel,
     nss_loadings,
 )
+from spxa.rates.curveset import CurveSet
 from spxa.rates.swaps import (
     BasisSwap,
     NotionalLike,
@@ -265,4 +269,6 @@ __all__ = [
     "fit_nss_zero_rates",
     "fit_nss",
     "NSSFit",
+    # curve sets
+    "CurveSet",
 ]
