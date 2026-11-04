@@ -90,7 +90,11 @@ CMS replication
     :class:`CMSReplication`: CMS coupons, caplets and floorlets by static replication with annuity mappings.
 Hull-White
     :class:`HullWhite`: one-factor Hull-White fitted to a discount curve, piecewise-constant volatility.
+Model cashflows
+    :func:`swap_cashflows`: swaps as discount-curve cashflows under deterministic basis, for model pricing.
 """
+
+from spxa.rates.model_cashflows import ModelCashflows, swap_cashflows
 
 from spxa.rates.hull_white import HullWhite
 
@@ -403,4 +407,6 @@ __all__ = [
     "SwaptionCube",
     "CMSReplication",
     "HullWhite",
+    "ModelCashflows",
+    "swap_cashflows",
 ]
