@@ -15,6 +15,11 @@ with :math:`X_T = S_T/F_T` and :math:`\mathrm{OTM}(k)` the undiscounted
 out-of-the-money price over the forward. A gamma swap weights the
 variance by :math:`S_t/S_0`, and its fair strike uses the weight
 :math:`1/k` instead of :math:`1/k^2`.
+
+**Volatility swaps** pay :math:`\sqrt{V_T/T}` and are not replicable by
+vanillas. In Heston the Laplace transform of the integrated variance
+:math:`V_T = \int_0^T v_t\,dt` has a closed form, and
+:math:`E\sqrt{V} = \frac{1}{2\sqrt\pi}\int_0^\infty \frac{1 - E e^{-sV}}{s^{3/2}}\,ds`.
 """
 
 from __future__ import annotations
@@ -23,12 +28,16 @@ import math
 from typing import Any, Callable
 
 import numpy as np
+from scipy.integrate import quad
 
 from spxa.vol.conventions import normalised_call_from_total_variance
+from spxa.vol.heston import Heston
 
 __all__ = [
     "fair_variance",
     "gamma_swap_strike",
+    "heston_integrated_variance_laplace",
+    "heston_volatility_swap",
     "variance_swap_mtm",
     "variance_swap_strike",
 ]
@@ -126,3 +135,39 @@ def variance_swap_mtm(
         raise ValueError("need 0 <= t < T")
     expected = (realised_variance * t + fair_remaining * (T - t)) / T
     return notional * df * (expected - strike)
+
+
+def _heston_log_laplace(model: Heston, T: float, s: Any) -> Any:
+    # log E exp(-s V_T) written without cancellation as xi -> 0: with g = sqrt(k^2 + 2 xi^2 s)
+    # and d = g - k = 2 xi^2 s / (g + k), the denominator is 2g - d(1 - e^{-gT})
+    s = np.asarray(s, float)
+    k, th, xi, v0 = model.kappa, model.theta, model.xi, model.v0
+    g = np.sqrt(k * k + 2.0 * xi * xi * s)
+    d = 2.0 * xi * xi * s / (g + k)
+    one_e = -np.expm1(-g * T)
+    den = 2.0 * g - d * one_e
+    B = 2.0 * s * one_e / den
+    c = 2.0 * k * th / (xi * xi)
+    logA = -c * np.log1p(-d * one_e / (2.0 * g)) - (4.0 * k * th * s / (g + k)) * T / 2.0
+    return logA - B * v0
+
+
+def heston_integrated_variance_laplace(model: Heston, T: float, s: Any) -> Any:
+    r""":math:`E\exp(-s\int_0^T v_t\,dt)` in Heston (the CIR bond-price formula)."""
+    return np.exp(_heston_log_laplace(model, T, s))
+
+
+def heston_volatility_swap(model: Heston, T: float) -> float:
+    r"""Fair volatility-swap strike :math:`E\sqrt{V_T/T}` in Heston."""
+    if T <= 0:
+        raise ValueError("T must be positive")
+
+    def f(u: float) -> float:
+        # s = u^2 removes the s^{-3/2} singularity at zero: ds / s^{3/2} = 2 du / u^2
+        s = u * u
+        return 2.0 * float(-np.expm1(_heston_log_laplace(model, T, s))) / (u * u)
+
+    cuts = [0.0, 0.3, 1.0, 3.0, 10.0, 30.0]
+    val = sum(quad(f, a, b, limit=200, epsabs=1e-14)[0] for a, b in zip(cuts, cuts[1:]))
+    val += quad(f, cuts[-1], np.inf, limit=200, epsabs=1e-14)[0]
+    return val / (2.0 * math.sqrt(math.pi)) / math.sqrt(T)

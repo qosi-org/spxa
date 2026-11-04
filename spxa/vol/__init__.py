@@ -113,11 +113,15 @@ Multi-marginal MOT
     :func:`mot_multi`: bounds for claims on several dates.
 Variance swaps
     :func:`variance_swap_strike`: fair variance and gamma swap strikes by replication.
+    :func:`heston_volatility_swap`: exact Heston volatility swap from the Laplace transform.
+
 """
 
 from spxa.vol.variance_swaps import (
     fair_variance,
     gamma_swap_strike,
+    heston_integrated_variance_laplace,
+    heston_volatility_swap,
     variance_swap_mtm,
     variance_swap_strike,
 )
@@ -470,4 +474,6 @@ __all__ = [
     "gamma_swap_strike",
     "variance_swap_mtm",
     "variance_swap_strike",
+    "heston_integrated_variance_laplace",
+    "heston_volatility_swap",
 ]

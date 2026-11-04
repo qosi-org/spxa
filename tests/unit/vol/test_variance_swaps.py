@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 from scipy.integrate import quad
@@ -11,6 +13,8 @@ from spxa.market import EquityForward
 from spxa.vol.variance_swaps import (
     fair_variance,
     gamma_swap_strike,
+    heston_integrated_variance_laplace,
+    heston_volatility_swap,
     variance_swap_mtm,
     variance_swap_strike,
 )
@@ -72,3 +76,32 @@ def test_mark_to_market() -> None:
         variance_swap_mtm(0.05, 1.0, 1.0, 0.04, 0.03, 0.98)
     with pytest.raises(ValueError):
         fair_variance(lambda k: k, 0.0)
+
+
+def test_heston_volatility_swap() -> None:
+    h = v.Heston(0.04, 1.5, 0.06, 0.5, -0.7)
+    ev = h.expected_total_variance(1.0)
+    d = 1e-6
+    assert (1 - heston_integrated_variance_laplace(h, 1.0, d)) / d == pytest.approx(ev, rel=1e-6)
+    vs = heston_volatility_swap(h, 1.0)
+    assert vs < math.sqrt(
+        ev
+    )  # Jensen: the vol swap sits below the square root of the variance swap
+    # Monte Carlo: full-truncation Euler for v and trapezoidal integrated variance
+    rng = np.random.default_rng(0)
+    n, steps = 100_000, 400
+    dt = 1.0 / steps
+    var, integral = np.full(n, h.v0), np.zeros(n)
+    for _ in range(steps):
+        vp = np.maximum(var, 0.0)
+        var = var + h.kappa * (h.theta - vp) * dt + h.xi * np.sqrt(vp * dt) * rng.standard_normal(n)
+        integral += 0.5 * (vp + np.maximum(var, 0.0)) * dt
+    mc = np.sqrt(integral)
+    assert abs(vs - mc.mean()) < 3 * mc.std() / math.sqrt(n)
+    # vanishing vol of variance: deterministic variance, no convexity
+    for T in (0.1, 1.0, 5.0):
+        m = v.Heston(0.04, 1.5, 0.06, 1e-4, -0.7)
+        assert heston_volatility_swap(m, T) == pytest.approx(
+            math.sqrt(m.expected_total_variance(T) / T), abs=1e-8
+        )
+    assert round(vs, 4) == 0.2090 and round(math.sqrt(ev), 4) == 0.2228
