@@ -416,6 +416,11 @@ class TestShortRateModels:
         for s in (
             "$0.0094954$",
             "$0.0020894$",
+            "$12.2$ times",
+            "$8.3$ times",
+            "$-9.2\\%$",
+            "$27.48$, $46.42$ and $57.09$ bp",
+            "$86.64$, $87.14$ and $87.65$ bp",
             "to $10^{-5}$",
         ):
             assert s in text, s
@@ -426,3 +431,43 @@ class TestShortRateModels:
         am = r.HullWhitePDE(hw, 301, 400).zcb_option(2.0, 6.0, K, "put", american=True)
         assert round(am, 7) == 0.0094954
         assert round(float(hw.zcb_option(2.0, 6.0, K, "put")), 7) == 0.0020894
+
+    def test_g2pp_correlation_ratios(self) -> None:
+        short = r.swaption(self.REF, "5Y", "1Y", 0.034)
+        long = r.swaption(self.REF, "5Y", "20Y", 0.034)
+        ratios = []
+        for rho in (-0.7, 0.7):
+            g = r.G2PP(self.DISC, 0.5, 0.012, 0.05, 0.009, rho)
+            ratios.append(g.swaption(long, self.PROJ) / g.swaption(short, self.PROJ))
+        assert [round(x, 1) for x in ratios] == [12.2, 8.3]
+
+    def test_positivity(self) -> None:
+        ht = r.HullWhiteTree(r.HullWhite(self.DISC, 0.1, 0.0085), 10.0, 200)
+        assert round(min(ht.rates(m).min() for m in range(200)), 3) == -0.092
+        bk = r.BlackKarasinski(self.DISC, 0.1, 0.25).tree(10.0, 200)
+        assert min(bk.rates(m).min() for m in range(200)) > 0
+        c = r.CIRPlusPlus(self.DISC, 0.3, 0.025, 0.08, 0.02)
+        assert np.all(c.phi(np.linspace(0.0, 30.0, 301)) > 0)
+
+    def test_cir_smile_against_hull_white(self) -> None:
+        atm = r.swaption(self.REF, "2Y", "5Y", 0.03).forward_rate(self.DISC, self.PROJ)
+        ins = [r.swaption(self.REF, "2Y", "5Y", atm + d, notional=1e4) for d in (-0.01, 0.0, 0.01)]
+        cir = r.CIRPlusPlus(self.DISC, 0.3, 0.025, 0.08, 0.02)
+        hw = r.HullWhite(self.DISC, 0.05, 0.01)
+        assert list(np.round(r.model_implied_vols(cir, ins, self.PROJ, "normal") * 1e4, 2)) == [
+            27.48,
+            46.42,
+            57.09,
+        ]
+        assert list(np.round(r.model_implied_vols(hw, ins, self.PROJ, "normal") * 1e4, 2)) == [
+            86.64,
+            87.14,
+            87.65,
+        ]
+
+    def test_hw2f_round_trip(self) -> None:
+        p = r.HullWhite2F(0.6, 0.012, 0.05, 0.004, -0.3)
+        q = r.HullWhite2F.from_g2pp(p.to_g2pp(self.DISC))
+        assert (q.a_bar, q.sigma1, q.b_bar, q.sigma2, q.rho_bar) == pytest.approx(
+            (0.6, 0.012, 0.05, 0.004, -0.3), rel=1e-12
+        )
