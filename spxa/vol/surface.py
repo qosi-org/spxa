@@ -201,6 +201,24 @@ class VolSurface:
         up, dn = self.implied_vol_k(np.array([h, -h]), T)
         return float((up - dn) / (2 * h))
 
+    # ----------------------------------------------------------- distribution
+    def terminal_distribution(self, T: float) -> Any:
+        """:class:`~spxa.vol.ImpliedDistribution` of :math:`\\log(S_T/F_T)` from the slice at ``T``."""
+        from spxa.vol.density import ImpliedDistribution
+
+        if T <= 0:
+            raise ValueError("T must be positive")
+        return ImpliedDistribution(lambda k: self.model.total_variance(k, float(T)))
+
+    def sample_terminal(self, T: float, n: int, rng: Any = None) -> np.ndarray:
+        """``n`` draws of :math:`S_T = F_T e^X` under the surface's risk-neutral law at ``T``.
+
+        This is for Monte Carlo checks: :math:`D\\,E[(S_T - K)^+]` reproduces
+        :meth:`price` up to sampling error and the inverse-transform
+        quantile error of :meth:`ImpliedDistribution.sample`.
+        """
+        return float(self.forward(T)) * np.exp(self.terminal_distribution(T).sample(n, rng))
+
     # ----------------------------------------------------------------- bumps
     def bumped(self, bump: Any) -> "VolSurface":
         """Surface with an implied-vol bump: a number (parallel) or a function ``(k, T) -> dvol``.
