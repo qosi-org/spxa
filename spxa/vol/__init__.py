@@ -101,7 +101,14 @@ VIX
     :class:`RBergomiVIX`: exact VIX sampling in rough Bergomi.
 Joint SPX/VIX calibration
     :func:`calibrate_heston_joint`: Heston fit to SPX smiles, VIX futures and VIX options.
+Discrete marginals
+    :func:`marginal_from_calls`: laws on a strike grid and the convex order.
 """
+
+from spxa.vol.marginals import (
+    DiscreteMarginal,
+    marginal_from_calls,
+)
 
 from spxa.vol.joint_calibration import (
     JointFit,
@@ -406,4 +413,6 @@ __all__ = [
     "SmileQuote",
     "VIXQuote",
     "calibrate_heston_joint",
+    "DiscreteMarginal",
+    "marginal_from_calls",
 ]
