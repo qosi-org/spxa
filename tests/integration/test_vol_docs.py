@@ -349,6 +349,10 @@ class TestStochasticLocalVol:
             "within 5 bp at $\\eta = 0.5$",
             "within 2.5 bp at $\\eta = 1$",
             "$L \\equiv 1$ to $10^{-9}$",
+            "within 2.5%",
+            "local-vol PDE value $8.18$ within 0.2%",
+            "$5.80$, $6.00$ and $6.33$",
+            "within 6 bp",
         ):
             assert s in text, s
 
@@ -356,3 +360,28 @@ class TestStochasticLocalVol:
         m = v.Heston(0.04, 1.5, 0.04, 0.3, -0.9)
         got = m.price(100.0, 1.0, F=100 * math.exp(0.025), df=math.exp(-0.025))
         assert round(got, 13) == 8.8948693600540
+
+    def test_mixing_fraction_table(self) -> None:
+        from spxa.pde import BlackScholesPDE
+
+        fwd = EquityForward(100.0, 0.03, dividend_yield=0.01)
+        surf = v.VolSurface(
+            v.SSVI(-0.7, v.PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t), fwd
+        )
+        lv = v.as_local_vol(surf, 1.0)
+        lv_do = float(
+            BlackScholesPDE(0.03, lv, 0.01).barrier(100.0, 1.0, 100.0, 85.0, "down-and-out", "call")
+        )
+        assert round(lv_do, 2) == 8.18
+        heston = v.Heston(0.04, 1.5, 0.04, 0.5, -0.7)
+        uo = []
+        for eta in (0.0, 0.5, 1.0):
+            pde = v.calibrate_slv(lv, heston, eta, 1.0, n_time=50).pde(
+                0.03, 0.01, n_x=81, n_v=31, n_time=40
+            )
+            uo.append(round(pde.barrier(100.0, 1.0, "call", 100.0, upper=130.0), 2))
+            if eta == 0.0:
+                assert pde.barrier(100.0, 1.0, "call", 100.0, lower=85.0) == pytest.approx(
+                    lv_do, rel=2e-3
+                )
+        assert uo == [5.80, 6.00, 6.33]

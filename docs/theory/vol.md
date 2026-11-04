@@ -18,7 +18,7 @@
 | Local volatility | `dupire_local_variance`, `LocalVolSurface`, `LocalVolGrid`, `bbf_implied_vol` |
 | Andreasen–Huge | `AndreasenHugeSurface`, `calibrate_andreasen_huge`, `AndreasenHugeFit`, `andreasen_huge_grid`, `piecewise_constant_vol` |
 | Local-vol simulation and checks | `local_vol_paths`, `LocalVolPaths`, `local_vol_diagnostics`, `LocalVolDiagnostics` |
-| Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `as_local_vol` |
+| Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `calibrate_leverage_particles`, `slv_paths`, `SLVPDE`, `calibrate_slv`, `as_local_vol` |
 
 ---
 
@@ -282,3 +282,11 @@ The leverage depends on the model's own conditional expectation, so the model is
 ### 9.3 Calibration by forward induction
 
 `calibrate_leverage` reads $E[v \mid y]$ from the current density at each step, sets $L^2 = \sigma_{LV}^2/E[v \mid y]$ with the local variance at the step midpoint, and advances the density with that leverage (Ren, Madan & Qian). Where the marginal density is negligible, the conditional expectation is extended flat. Calibrated to the SSVI surface of §8, the model reprices the smile at one year within 5 bp at $\eta = 0.5$ on the $121 \times 61$ grid, and within 2.5 bp at $\eta = 1$ on $161 \times 81$. The local variance must be tabulated finely in $y$ (`as_local_vol` uses 601 points): linear interpolation of a convex function biases the volatility upwards. As a consistency check, feeding the model its own Gyöngy local variance returns $L \equiv 1$ to $10^{-9}$.
+
+### 9.4 Particles, Monte Carlo and the PDE
+
+`calibrate_leverage_particles` is the particle method of Guyon and Henry-Labordère. It simulates $N$ particles and estimates $E[v \mid y]$ at each step by Gaussian kernel regression, with bandwidth $\propto \sigma\sqrt t\,N^{-1/5}$. On the same problem its leverage agrees with the forward equation's within 2.5%. `slv_paths` simulates the calibrated model with full-truncation Euler for $v$ and a log-Euler step for $y$, so $e^y$ is an exact martingale step by step. Knock-out barriers are monitored continuously through the Brownian-bridge survival probability $1 - e^{-2d_0d_1/(a^2\Delta t)}$. In the Black–Scholes limit this matches Reiner–Rubinstein at 20 steps, while discrete monitoring overprices by more than five standard errors. `SLVPDE` prices backwards in $(S, v)$. Its far spot edge uses the linearity condition, which is exact for payoffs linear in $S$ (in log-spot the same condition breaks put–call parity). Spot barriers become zero-Dirichlet edges. The PDE and Monte Carlo agree on calibrated-SLV barriers within three standard errors.
+
+### 9.5 The mixing fraction
+
+Every $\eta$ reprices the same vanillas, but path-dependent prices move. At $\eta = 0$ the variance is deterministic and the model is local volatility: a one-year down-and-out call (spot and strike 100, barrier 85, $r = 3\%$, $q = 1\%$) on the SSVI surface agrees with the one-factor local-vol PDE value $8.18$ within 0.2%. A one-year up-and-out call with barrier 130 is worth $5.80$, $6.00$ and $6.33$ at $\eta = 0$, $0.5$ and $1$, while the smile is matched within 6 bp in each case. `calibrate_slv` builds the model for a given $\eta$ from a local-vol surface or a `VolSurface`. In practice $\eta$ is set from barrier or forward-start quotes, which the vanillas cannot pin down.
