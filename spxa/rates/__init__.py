@@ -150,11 +150,16 @@ Least-squares Monte Carlo
     :func:`andersen_broadie`: the dual upper bound.
 Inflation
     :class:`InflationIndex` (lagged, interpolated reference CPI and index ratios) on :class:`CPIFixings`.
+    :func:`bootstrap_inflation_curve` builds an :class:`InflationCurve` of forward fixings from
+    zero-coupon inflation swaps, with :class:`Seasonality` and a real discount curve.
 """
 
 from spxa.rates.inflation import (
     CPIFixings,
+    InflationCurve,
     InflationIndex,
+    Seasonality,
+    bootstrap_inflation_curve,
     month_start,
 )
 
@@ -408,6 +413,9 @@ from spxa.rates.overnight import (
 )
 
 __all__ = [
+    "InflationCurve",
+    "Seasonality",
+    "bootstrap_inflation_curve",
     # indices
     "ESTR",
     "EURIBOR1M",
