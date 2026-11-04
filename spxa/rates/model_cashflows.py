@@ -23,7 +23,7 @@ fixing under the model.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -32,7 +32,7 @@ from spxa.rates.cashflows import FixedCoupon, IborCoupon, OvernightCoupon
 from spxa.rates.pricing import leg_pv
 from spxa.rates.swaps import Swap
 
-__all__ = ["ModelCashflows", "swap_cashflows"]
+__all__ = ["ModelCashflows", "coupon_cashflows", "swap_cashflows"]
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,17 @@ def swap_cashflows(
     swap: Swap, discount: YieldCurve, projection: Optional[YieldCurve] = None
 ) -> ModelCashflows:
     """Payer-signed cashflows of ``swap`` (``-`` fixed, ``+`` floating for a payer swap)."""
+    return coupon_cashflows(swap.fixed, swap.floating, swap.sign, discount, projection)
+
+
+def coupon_cashflows(
+    fixed: Sequence[Any],
+    floating: Sequence[Any],
+    sign: float,
+    discount: YieldCurve,
+    projection: Optional[YieldCurve] = None,
+) -> ModelCashflows:
+    """Model cashflows of a fixed and a floating leg (``sign = +1`` pays fixed)."""
     proj = projection if projection is not None else discount
     flows: dict[float, float] = {}
 
@@ -62,11 +73,10 @@ def swap_cashflows(
         t = float(discount.time(date))
         flows[t] = flows.get(t, 0.0) + amount
 
-    sign = swap.sign
-    for c in swap.fixed:
+    for c in fixed:
         assert isinstance(c, FixedCoupon)
         add(c.payment_date, -sign * c.amount())
-    for c in swap.floating:
+    for c in floating:
         if not isinstance(c, (IborCoupon, OvernightCoupon)):
             raise TypeError(f"unsupported floating cashflow {type(c).__name__}")
         N = c.notional

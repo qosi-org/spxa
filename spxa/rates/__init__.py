@@ -141,7 +141,15 @@ Forward market model
     :func:`fmm_paths` simulates them under the spot measure.
 SABR-LMM
     :class:`SABRLMM`: CEV forwards with a shared lognormal volatility factor.
+Bermudan swaptions
+    :func:`bermudan_swaption`: co-terminal exercise into the remaining swap.
 """
+
+from spxa.rates.bermudan import (
+    BermudanSwaption,
+    bermudan_swaption,
+    bermudan_from_times,
+)
 
 from spxa.rates.sabr_lmm import (
     SABRLMM,
@@ -212,7 +220,7 @@ from spxa.rates.hw_tree import HullWhiteTree
 
 from spxa.rates.hw_mc import HullWhitePaths, hull_white_paths
 
-from spxa.rates.model_cashflows import ModelCashflows, swap_cashflows
+from spxa.rates.model_cashflows import ModelCashflows, coupon_cashflows, swap_cashflows
 
 from spxa.rates.hull_white import HullWhite
 
@@ -527,6 +535,7 @@ __all__ = [
     "HullWhite",
     "ModelCashflows",
     "swap_cashflows",
+    "coupon_cashflows",
     "HullWhitePaths",
     "hull_white_paths",
     "HullWhiteTree",
@@ -577,4 +586,7 @@ __all__ = [
     "fmm_paths",
     "SABRLMM",
     "sabr_lmm_paths",
+    "BermudanSwaption",
+    "bermudan_swaption",
+    "bermudan_from_times",
 ]
