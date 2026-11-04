@@ -97,7 +97,9 @@ def test_eval_matrix_matches_spline() -> None:
     pts = np.linspace(sm.knots[0], sm.knots[-1], 97)
     z = np.concatenate([sm.values, sm.gammas[1:-1]])
     assert spline_eval_matrix(sm.knots, pts) @ z == pytest.approx(sm.normalised(pts), abs=1e-14)
-    assert spline_eval_matrix(sm.knots, pts, 1) @ z == pytest.approx(sm.normalised(pts, 1), abs=1e-13)
+    assert spline_eval_matrix(sm.knots, pts, 1) @ z == pytest.approx(
+        sm.normalised(pts, 1), abs=1e-13
+    )
     with pytest.raises(ValueError):
         spline_eval_matrix(sm.knots, pts, 2)
 

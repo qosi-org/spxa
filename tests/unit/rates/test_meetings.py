@@ -20,7 +20,8 @@ STEPS = [
     for m, d in [(2, 1), (3, 21), (5, 2), (6, 13), (8, 1), (9, 19), (11, 8), (12, 19)]
 ]
 END = dt.date(2025, 1, 1)
-START = dt.date(2024, 1, 16)  # 15 Jan 2024 is a SOFR holiday (MLK day), so forwards start on the 16th
+# 15 Jan 2024 is a SOFR holiday (MLK day), so forwards start on the 16th
+START = dt.date(2024, 1, 16)
 RATES = [0.0531, 0.0531, 0.0518, 0.0506, 0.0481, 0.0456, 0.0431, 0.0418, 0.0406]
 TRUE = flat_forward_curve(REF, [*STEPS, END], RATES)
 
