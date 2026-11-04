@@ -132,7 +132,14 @@ Cheyette PDE
     :class:`CheyettePDE`: split semi-Lagrangian / Crank-Nicolson solver in (x, y) with exercise.
 LIBOR market model
     :class:`LiborMarketModel` with :class:`AbcdVol` volatilities, parametric correlations and PCA rank reduction.
+LMM Monte Carlo
+    :func:`lmm_paths`: spot-measure LMM simulation with predictor-corrector drift.
 """
+
+from spxa.rates.lmm_mc import (
+    LMMPaths,
+    lmm_paths,
+)
 
 from spxa.rates.lmm import (
     AbcdVol,
@@ -540,4 +547,6 @@ __all__ = [
     "exponential_correlation",
     "rebonato_correlation",
     "reduce_rank",
+    "LMMPaths",
+    "lmm_paths",
 ]
