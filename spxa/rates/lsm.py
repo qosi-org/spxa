@@ -13,8 +13,24 @@ the policy is then valued on an independent set, so the result is a
 :class:`ExerciseProblem` describes a problem through a transition function,
 so the same code serves every model with an exact or discretised step;
 :func:`hull_white_exercise_problem` builds one for a Bermudan swaption in
-Hull–White. The matching upper bound is
-:func:`spxa.rates.lsm.andersen_broadie`.
+Hull–White.
+
+The matching **upper bound** is the dual of Rogers and of Haugh & Kogan,
+
+.. math:: V_0 \le E\Bigl[\max_k \bigl(D(t_k)g_k - M_{t_k}\bigr)\Bigr]
+
+for any martingale :math:`M` with :math:`M_0 = 0`, with equality for the
+martingale part of the true value process. :func:`andersen_broadie`
+(Andersen & Broadie, 2004) builds :math:`M` from the LSM policy itself:
+with :math:`L_k` the discounted value of following the policy from
+:math:`t_k` and :math:`\hat C_k` its continuation value, estimated by
+nested simulation,
+
+.. math:: M_{t_{k+1}} - M_{t_k} = L_{k+1} - \hat C_k .
+
+On dates where the policy continues, :math:`L_k = \hat C_k`, so the
+martingale only jumps where it exercises. The gap between the bounds
+measures how far the policy is from optimal.
 """
 
 from __future__ import annotations
@@ -33,6 +49,8 @@ __all__ = [
     "ExerciseProblem",
     "LSMPolicy",
     "LSMResult",
+    "DualBound",
+    "andersen_broadie",
     "hull_white_exercise_problem",
     "lsm",
 ]
@@ -180,3 +198,58 @@ def hull_white_exercise_problem(model: HullWhite, bermudan: BermudanSwaption) ->
     return ExerciseProblem(
         np.asarray(bermudan.exercise_times, float), np.zeros(1), step, exercise_value, basis
     )
+
+
+@dataclass(frozen=True)
+class DualBound:
+    """Andersen–Broadie upper bound, the lower bound it was built on, and their gap."""
+
+    upper: float
+    stderr: float
+    lower: float
+    lower_stderr: float
+
+    @property
+    def gap(self) -> float:
+        return self.upper - self.lower
+
+    @property
+    def midpoint(self) -> float:
+        return 0.5 * (self.upper + self.lower)
+
+
+def andersen_broadie(
+    result: LSMResult, n_outer: int = 1000, n_inner: int = 500, seed: int = 0
+) -> DualBound:
+    r"""Upper bound :math:`\hat V_0 + E[\max_k(D_k g_k - \pi_k)]` from the policy of ``result``.
+
+    Each outer path needs the continuation value :math:`\hat C_k` on every
+    exercise date but the last, estimated from ``n_inner`` sub-paths that
+    follow the policy. Inner noise biases the bound upwards by
+    :math:`O(1/\sqrt{n_\text{inner}})` at most.
+    """
+    pol = result.policy
+    prob = pol.problem
+    m = prob.m
+    rng = np.random.default_rng(seed)
+    states, D = prob.simulate(n_outer, rng)
+    Z = np.zeros((m, n_outer))  # discounted exercise values
+    L = np.zeros((m, n_outer))
+    C = np.zeros((m, n_outer))  # discounted continuation values (to time zero)
+    ex = np.zeros((m, n_outer), bool)
+    for k in range(m):
+        g = prob.exercise_value(k, states[k])
+        Z[k] = D[k] * np.maximum(g, 0.0)
+        ex[k] = pol.exercise(k, states[k], g)
+        if k < m - 1:
+            X = np.repeat(states[k], n_inner, axis=0)
+            inner = pol.value_from(k, X, rng).reshape(n_outer, n_inner).mean(axis=1)
+            C[k] = D[k] * inner
+        L[k] = np.where(ex[k], Z[k], C[k])
+    # pi_k = L_k + sum_{j<k, exercised} (Z_j - C_j); M_k = pi_k - V0
+    jumps = np.where(ex[:-1], Z[:-1] - C[:-1], 0.0)
+    pi = L.copy()
+    pi[1:] += np.cumsum(jumps, axis=0)
+    delta = np.max(Z - pi, axis=0)
+    se = math.sqrt(float(delta.var(ddof=1)) / n_outer + result.stderr**2)
+    return DualBound(result.price + float(delta.mean()), se, result.price, result.stderr)

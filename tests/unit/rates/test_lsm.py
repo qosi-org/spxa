@@ -9,7 +9,7 @@ from spxa.rates.bermudan_engines import bermudan_pde
 from spxa.rates.hull_white import HullWhite
 from spxa.rates.hw_mc import hull_white_transition
 from spxa.rates.hw_pde import HullWhitePDE
-from spxa.rates.lsm import hull_white_exercise_problem, lsm
+from spxa.rates.lsm import LSMPolicy, LSMResult, andersen_broadie, hull_white_exercise_problem, lsm
 from spxa.rates.swaptions import swaption
 from tests.unit.rates.test_bermudan import DISC, PROJ, REF, _ber
 
@@ -43,3 +43,24 @@ def test_lower_bound_close_to_pde() -> None:
     assert res.price < pde + 3 * res.stderr
     assert res.price > 0.995 * pde - 3 * res.stderr
     assert res.stderr < 0.003 * pde
+
+
+def test_andersen_broadie_brackets_the_pde() -> None:
+    ber = _ber()
+    pde = bermudan_pde(HullWhitePDE(HW, 401, 400), ber)
+    prob = hull_white_exercise_problem(HW, ber)
+    res = lsm(prob, 200_000, seed=1, n_train=50_000)
+    dual = andersen_broadie(res, 1000, 500, seed=2)
+    assert dual.lower - 3 * dual.lower_stderr < pde < dual.upper + 3 * dual.stderr
+    assert 0.0 <= dual.gap < 0.001 * pde
+    # a poor policy (exercise as soon as in the money) has a much wider duality gap
+    naive = LSMPolicy(prob, tuple(np.r_[-1e30, np.zeros(4)] for _ in range(ber.n_exercise - 1)))
+    x0 = np.zeros((200_000, 1))
+    v = naive.value_from(-1, x0, np.random.default_rng(4))
+    poor = LSMResult(
+        float(v.mean()), float(v.std(ddof=1) / np.sqrt(v.size)), naive, float(v.mean())
+    )
+    bad = andersen_broadie(poor, 1000, 500, seed=5)
+    assert poor.price < pde - 3 * poor.stderr
+    assert bad.upper + 3 * bad.stderr > pde
+    assert bad.gap > 10 * dual.gap

@@ -146,13 +146,16 @@ Bermudan swaptions
 Bermudan engines
     :func:`bermudan_pde` and :func:`bermudan_tree`: backward induction on lattices.
 Least-squares Monte Carlo
-    :func:`lsm`: Longstaff-Schwartz lower bounds for Bermudan exercise.
+    :func:`lsm`: Longstaff-Schwartz lower bounds for Bermudan exercise;
+    :func:`andersen_broadie`: the dual upper bound.
 """
 
 from spxa.rates.lsm import (
+    DualBound,
     ExerciseProblem,
     LSMPolicy,
     LSMResult,
+    andersen_broadie,
     hull_white_exercise_problem,
     lsm,
 )
@@ -613,5 +616,7 @@ __all__ = [
     "LSMPolicy",
     "LSMResult",
     "hull_white_exercise_problem",
+    "andersen_broadie",
+    "DualBound",
     "lsm",
 ]
