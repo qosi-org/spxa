@@ -590,3 +590,32 @@ class TestVarianceSwaps:
         h = v.Heston(0.04, 1.5, 0.06, 0.5, -0.7)
         assert round(v.heston_volatility_swap(h, 1.0), 4) == 0.2090
         assert round(math.sqrt(h.expected_total_variance(1.0)), 4) == 0.2228
+
+
+class TestModelRisk:
+    """§13 numbers are asserted in tests/integration/test_model_risk_slv.py; this pins the text to them."""
+
+    def test_claims_match_the_integration_tests(self) -> None:
+        source = (Path(__file__).parent / "test_model_risk_slv.py").read_text(encoding="utf-8")
+        for pinned in ("[0.07, 0.21]", "[0.02, 0.08, 0.11]", "[0.01, 0.09]", "== 0.008", "< 15e-4"):
+            assert pinned in source
+        section = DOC.read_text(encoding="utf-8").split("## 13. Model risk", 1)[1]
+        for claim in (
+            "7% at the money and 21%",
+            "2%, 8% and 11%",
+            "by 9%",
+            "by 1%",
+            "$0.008$",
+            "15 bp",
+        ):
+            assert claim in section
+
+    def test_coherence_claims(self) -> None:
+        rng = np.random.default_rng(0)
+        mr = v.ModelRisk(
+            tuple("abcd"), rng.normal(size=(4, 2)), rng.uniform(0, 1, 4), np.zeros((4, 2))
+        )
+        for lam in (0.0, 0.5, 1.0, 5.0):
+            assert np.all(mr.penalised_width(lam + 0.5) <= mr.penalised_width(lam))
+        w = np.array([1.0, -2.0])
+        assert mr.combine(w).width() <= abs(w) @ mr.width() + 1e-12

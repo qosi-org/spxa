@@ -24,6 +24,7 @@
 | Martingale optimal transport | `DiscreteMarginal`, `marginal_from_calls`, `surface_marginals`, `mot_solve`, `mot_bounds`, `ot_solve`, `MOTResult`, `mot_sinkhorn`, `SinkhornResult`, `mot_multi` |
 | Robust pricing | `robust_bounds`, `forward_start_call`, `forward_start_straddle`, `static_replication`, `StaticReplication`, `superhedge_pnl` |
 | Variance and volatility swaps | `fair_variance`, `variance_swap_strike`, `gamma_swap_strike`, `variance_swap_mtm`, `variance_swap_curve`, `ForwardVarianceCurve`, `vix_index`, `heston_volatility_swap`, `heston_integrated_variance_laplace`, `realised_variance`, `variance_swap_payoff` |
+| Model risk | `ModelRisk`, `smile_rmse` |
 
 ---
 
@@ -409,3 +410,19 @@ $$
 ### 12.4 Discrete monitoring
 
 Term sheets use daily log returns, $\sigma_R^2 = \frac1T\sum_i(\log S_{t_i}/S_{t_{i-1}})^2$, often capped at $2.5^2 K$. `realised_variance` and `variance_swap_payoff` compute these. Under Black–Scholes with step $\Delta t$, the drift of the log return adds a bias, $E[\sigma_R^2] = \sigma^2 + \sigma^4\Delta t/4$. The demeaned convention with divisor $n - 1$ removes it. On daily Heston paths the bias is below the Monte Carlo error, and realised variance prices the swap at $E[V]/T$.
+
+## 13. Model risk
+
+### 13.1 Coherent and penalised measures
+
+Models calibrated to the same smiles agree on vanillas but not on path-dependent claims. Cont (2006) measures the disagreement over a set of models $\mathcal Q$, each with calibration error $\epsilon_Q$:
+
+$$
+\mu_\delta(X) = \sup_{\epsilon_Q \le \delta} E_Q[X] - \inf_{\epsilon_Q \le \delta} E_Q[X].
+$$
+
+It is coherent in $X$: subadditive and positively homogeneous, zero on claims every model prices alike, and unchanged by adding them. Charging each model for its error instead of using a hard tolerance gives the convex version, with upper price $\max_Q(E_Q[X] - \lambda\epsilon_Q)$ and lower price $\min_Q(E_Q[X] + \lambda\epsilon_Q)$. Its width falls monotonically in $\lambda$ to the spread among the best-fitting models. `ModelRisk` implements both, for exact or Monte Carlo prices. `significant` tests a width against the simulation error. `smile_rmse` is the usual calibration error. Every martingale model with the given marginals lies inside the MOT interval of §11, and `share` gives the fraction of that interval a family spans.
+
+### 13.2 Mixing fractions
+
+Calibrate local volatility ($\eta = 0$) and SLV with $\eta = 0.5$ and $\eta = 1$ (§9) to the SSVI surface of §8. All three fit the smiles at $0.5$ and $1$ year within 15 bp, and their vanilla prices agree to calibration noise. Forward-start calls $(Y - kX)^+$ between $0.5$ and $1$ year do not agree. Local volatility prices them highest and the full Heston mix lowest, a relative spread of 7% at the money and 21% at $k = 1.1$. All prices lie inside the MOT bounds, yet the family covers only 2%, 8% and 11% of the bounds at $k = 0.9, 1, 1.1$. The space of models that fit the smiles is far larger than one SLV family. On the SLV PDE, a one-year up-and-out call (barrier 130, strike 100) moves by 9% across the family and a down-and-out (barrier 85) by 1%. A variance swap is fixed by replication (§12), and all three models price it at $K_{\text{var}}$. The one-year volatility swap spreads by $0.008$, falling as the vol of variance rises with $\eta$.
