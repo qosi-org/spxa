@@ -404,3 +404,25 @@ class TestVolatilityProducts:
             assert lin.convexity_adjustment() == pytest.approx(closed, rel=1e-8)
             assert round(lin.convexity_adjustment() * 1e4, 1) == 10.2
             assert round(std.convexity_adjustment() * 1e4, 1) == 10.8
+
+
+class TestShortRateModels:
+    REF = D(2024, 3, 15)
+    DISC = FlatCurve(0.03, reference_date=D(2024, 3, 15))
+    PROJ = FlatCurve(0.034, reference_date=D(2024, 3, 15))
+
+    def test_section_numbers_in_text(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$0.0094954$",
+            "$0.0020894$",
+            "to $10^{-5}$",
+        ):
+            assert s in text, s
+
+    def test_american_bond_put(self) -> None:
+        hw = r.HullWhite(self.DISC, 0.05, 0.01)
+        K = float(self.DISC.discount(6.0))
+        am = r.HullWhitePDE(hw, 301, 400).zcb_option(2.0, 6.0, K, "put", american=True)
+        assert round(am, 7) == 0.0094954
+        assert round(float(hw.zcb_option(2.0, 6.0, K, "put")), 7) == 0.0020894

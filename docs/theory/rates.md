@@ -24,6 +24,10 @@
 | SABR | `SABR`, `sabr_lognormal_vol`, `sabr_normal_vol`, `alpha_from_atm`, `calibrate_sabr`, `SABRFit` |
 | Arbitrage-free SABR | `ArbitrageFreeSABR`, `SABRDensity`, `sabr_paths`, `SABRPaths` |
 | Stripping, cube and CMS | `strip_caplet_vols`, `CapletVolCurve`, `SwaptionCube`, `CMSReplication` |
+| Hull–White | `HullWhite`, `ModelCashflows`, `swap_cashflows`, `hull_white_paths`, `HullWhiteTree`, `HullWhitePDE`, `calibrate_hull_white` |
+| Two-factor Gaussian | `G2PP`, `g2pp_paths`, `calibrate_g2pp`, `HullWhite2F` |
+| Positive short rates | `BlackKarasinski`, `BlackKarasinskiTree`, `black_karasinski_paths`, `CIRPlusPlus` |
+| Model interface | `ShortRateModel`, `model_price`, `model_implied_vols` |
 
 ---
 
@@ -321,3 +325,22 @@ $$
 
 which the replication reproduces to $10^{-8}$ relative. With the slope $a$ taken from the standard mapping, the adjustment for a 5-year fixing of a 10-year annual swap rate at $S_0 = 3\%$ and $\sigma = 20\%$ is $10.2$ bp. The standard mapping itself gives $10.8$ bp. The smile matters as well. The payoff is most convex at high rates, so raising the vols at high strikes (a larger $\nu$) raises the adjustment, while a downward skew ($\beta < 1$, $\rho < 0$) lowers it; `examples/rates_vol_example.py` shows the second case.
 
+## 9. Short-rate models
+
+### 9.1 Hull–White
+
+`HullWhite` writes the short rate as $r_t = f(0, t) + x_t$ with
+
+$$
+dx_t = \bigl(y(t) - a x_t\bigr)\,dt + \sigma(t)\,dW_t, \qquad x_0 = 0, \qquad y(t) = \int_0^t e^{-2a(t-u)}\sigma(u)^2\,du,
+$$
+
+which fits the discount curve by construction (Andersen & Piterbarg's form; $\sigma$ may be piecewise constant). Bond prices are $P(t, T) = \frac{P(0,T)}{P(0,t)}\exp\bigl(-B x_t - \tfrac12 B^2 y(t)\bigr)$ with $B = (1 - e^{-a(T-t)})/a$, so zero-bond options are Black formulas on the bond forward, and caplets are bond puts. A swap with discount-curve cashflows (`swap_cashflows`, with the projection basis kept as a deterministic spread) is a portfolio of bonds. When its amounts change sign once, Jamshidian's decomposition prices the swaption as bond options struck at $P(T, t_i | x^*)$. Otherwise `swaption` integrates against the Gaussian.
+
+### 9.2 Trees, PDE and simulation
+
+`HullWhiteTree` is the Hull–White (1994) trinomial tree, with the drift fitted step by step so that every grid bond reprices exactly. `HullWhitePDE` solves the pricing equation in $x$ on the `spxa.pde` solvers, with exercise events and American constraints. `hull_white_paths` simulates $(x, \int x)$ exactly, so the bank-account discount factor reprices the curve without bias. These engines handle early exercise. On a flat 3% curve, with $a = 0.05$ and $\sigma = 1\%$, an American put expiring in 2 years on the 6-year bond, struck at $P(0, 6)$, is worth $0.0094954$, against $0.0020894$ for the European. Exercise pays as soon as rates fall far enough to lift the bond above its current price.
+
+### 9.3 Calibration
+
+`calibrate_hull_white` fixes $a$ and fits $\sigma$ to swaptions or caps. In bootstrap mode, $\sigma$ is piecewise constant between instrument expiries and each level is solved in turn. In global mode, $a$ and one $\sigma$ are fitted together by least squares. `calibrate_g2pp` fits all five G2++ parameters to a grid of swaptions. It keeps $a > b$ (so $x$ is the fast factor) and $|\rho| < 1$ through its parametrisation, and it recovers the parameters of a synthetic $3 \times 3$ grid to $10^{-5}$. `model_implied_vols` quotes any `ShortRateModel` (Hull–White, G2++, CIR++) in Black or Bachelier vols for comparison with the market.
