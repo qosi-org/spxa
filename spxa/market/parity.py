@@ -167,4 +167,4 @@ def implied_forwards(
     ds = discounts if discounts is not None else [None] * len(surface)
     if len(ds) != len(surface):
         raise ValueError("discounts must match the number of chains")
-    return [implied_forward(c, d, **kwargs) for c, d in zip(surface, ds)]  # type: ignore[arg-type]
+    return [implied_forward(c, d, **kwargs) for c, d in zip(surface, ds)]

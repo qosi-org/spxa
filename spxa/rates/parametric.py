@@ -135,7 +135,7 @@ def nelson_siegel(
     beta0: float, beta1: float, beta2: float, tau: float, **kw: object
 ) -> NelsonSiegelSvensson:
     """Three-factor Nelson–Siegel curve."""
-    return NelsonSiegelSvensson(beta0, beta1, beta2, 0.0, tau, None, **kw)  # type: ignore[arg-type]
+    return NelsonSiegelSvensson(beta0, beta1, beta2, 0.0, tau, None, **kw)
 
 
 @dataclass

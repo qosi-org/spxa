@@ -114,8 +114,8 @@ def call_arbitrage_constraints(
             # (c2 - c1)/h1 - (c1 - c0)/h0 >= 0
             coef: dict[int, float] = {}
             b = 0.0
-            coef[i2] = 1.0 / h1  # type: ignore[index]
-            coef[i1] = coef.get(i1, 0.0) - 1.0 / h1 - 1.0 / h0  # type: ignore[arg-type]
+            coef[i2] = 1.0 / h1
+            coef[i1] = coef.get(i1, 0.0) - 1.0 / h1 - 1.0 / h0
             if i0 is None:
                 b -= 1.0 / h0  # c0 = 1 moves to the right-hand side
             else:

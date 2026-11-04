@@ -51,7 +51,7 @@ class BootstrapResult:
     def base(self) -> PiecewiseCurve:
         """The interpolated node curve (without forward spreads)."""
         c = self.curve
-        return c.base if isinstance(c, SpreadAdjustedCurve) else c  # type: ignore[return-value]
+        return c.base if isinstance(c, SpreadAdjustedCurve) else c
 
     @property
     def max_residual(self) -> float:

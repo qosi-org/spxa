@@ -498,7 +498,7 @@ class PiecewiseCurve(YieldCurve):
     ) -> "PiecewiseCurve":
         """Curve from continuously compounded zero rates at year fractions ``times``."""
         t = np.asarray(times, dtype=float)
-        return cls(t, np.exp(-np.asarray(rates, dtype=float) * t), scheme, **kwargs)  # type: ignore[arg-type]
+        return cls(t, np.exp(-np.asarray(rates, dtype=float) * t), scheme, **kwargs)
 
     def with_discounts(self, discounts: Sequence[float]) -> "PiecewiseCurve":
         """Same nodes and scheme with new discount factors."""
