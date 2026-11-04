@@ -28,24 +28,31 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 
+from spxa.market.curves import YieldCurve
 from spxa.rates.hull_white import HullWhite
 
-__all__ = ["HullWhiteTree"]
+__all__ = ["HullWhiteTree", "TrinomialShortRateTree"]
 
 
-class HullWhiteTree:
-    """Trinomial tree for ``model`` on ``n_steps`` equal steps up to ``horizon``."""
+class TrinomialShortRateTree:
+    """Trinomial geometry of Hull & White (1994) with curve fitting by forward induction.
 
-    def __init__(self, model: HullWhite, horizon: float, n_steps: int) -> None:
-        if model.sigma.size != 1:
-            raise ValueError("the trinomial tree needs a constant volatility")
+    Node ``j`` at step ``m`` has state :math:`\\alpha_m + j\\Delta x`, and
+    :meth:`node_rates` maps it to the short rate over the step.
+    Subclasses define the map and how :math:`\\alpha_m` is solved.
+    """
+
+    def __init__(
+        self, curve: YieldCurve, a: float, sigma: float, horizon: float, n_steps: int
+    ) -> None:
         if horizon <= 0 or n_steps < 1:
             raise ValueError("need horizon > 0 and n_steps >= 1")
-        self.model = model
+        if a <= 0 or sigma <= 0:
+            raise ValueError("need a > 0 and sigma > 0")
+        self.curve = curve
         self.dt = dt = horizon / n_steps
         self.n_steps = n_steps
-        a, sig = model.a, float(model.sigma[0])
-        self.dx = dx = sig * math.sqrt(3 * dt)
+        self.dx = dx = sigma * math.sqrt(3 * dt)
         self.jmax = jmax = max(1, math.ceil(0.184 / (a * dt)))
         M = math.expm1(-a * dt)
         j = np.arange(-jmax, jmax + 1)
@@ -55,38 +62,38 @@ class HullWhiteTree:
         pd = 1 / 6 + (j2m2 - jm) / 2
         shift = np.zeros(j.size, int)  # centre of the branching: j + shift
         # top: branch to j, j-1, j-2
-        pu[-1], pm[-1], pd[-1] = (
-            7 / 6 + (j2m2[-1] + 3 * jm[-1]) / 2,
-            -1 / 3 - j2m2[-1] - 2 * jm[-1],
-            1 / 6 + (j2m2[-1] + jm[-1]) / 2,
-        )
+        pu[-1] = 7 / 6 + (j2m2[-1] + 3 * jm[-1]) / 2
+        pm[-1] = -1 / 3 - j2m2[-1] - 2 * jm[-1]
+        pd[-1] = 1 / 6 + (j2m2[-1] + jm[-1]) / 2
         shift[-1] = -1
         # bottom: branch to j+2, j+1, j
-        pu[0], pm[0], pd[0] = (
-            1 / 6 + (j2m2[0] - jm[0]) / 2,
-            -1 / 3 - j2m2[0] + 2 * jm[0],
-            7 / 6 + (j2m2[0] - 3 * jm[0]) / 2,
-        )
+        pu[0] = 1 / 6 + (j2m2[0] - jm[0]) / 2
+        pm[0] = -1 / 3 - j2m2[0] + 2 * jm[0]
+        pd[0] = 7 / 6 + (j2m2[0] - 3 * jm[0]) / 2
         shift[0] = 1
         self._p = np.stack([pu, pm, pd])
         self._shift = shift
-        # forward induction for alpha
         self.alpha = np.zeros(n_steps)
-        curve = model.curve
         Q = np.zeros(j.size)
         Q[jmax] = 1.0
         self._Q = [Q.copy()]
         for m in range(n_steps):
             w = self.width(m)
             idx = np.arange(jmax - w, jmax + w + 1)
-            num = float(np.sum(Q[idx] * np.exp(-j[idx] * dx * dt)))
-            self.alpha[m] = math.log(num / float(curve.discount((m + 1) * dt))) / dt
-            disc = Q[idx] * np.exp(-(self.alpha[m] + j[idx] * dx) * dt)
+            target = float(curve.discount((m + 1) * dt))
+            self.alpha[m] = self._solve_alpha(Q[idx], j[idx] * dx, target)
+            disc = Q[idx] * np.exp(-self.node_rates(self.alpha[m], j[idx] * dx) * dt)
             Qn = np.zeros(j.size)
             for k, s in zip((1, 0, -1), range(3)):
                 np.add.at(Qn, idx + self._shift[idx] + k, disc * self._p[s, idx])
             Q = Qn
             self._Q.append(Q.copy())
+
+    def node_rates(self, alpha: float, x: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
+
+    def _solve_alpha(self, Q: np.ndarray, x: np.ndarray, target: float) -> float:
+        raise NotImplementedError
 
     def width(self, m: int) -> int:
         """Half-width of the tree at step ``m``."""
@@ -104,7 +111,7 @@ class HullWhiteTree:
     def rates(self, m: int) -> np.ndarray:
         """Short rates :math:`r_{m,j}` at the live nodes of step ``m`` (low to high)."""
         w = self.width(m)
-        return self.alpha[m] + np.arange(-w, w + 1) * self.dx
+        return self.node_rates(self.alpha[m], np.arange(-w, w + 1) * self.dx)
 
     def arrow_debreu(self, m: int) -> np.ndarray:
         w = self.width(m)
@@ -166,3 +173,20 @@ class HullWhiteTree:
 
         ex = list(self.times()[: mT + 1]) if american else None
         return self.price(pay, T, exercise=ex)
+
+
+class HullWhiteTree(TrinomialShortRateTree):
+    """Trinomial tree for ``model`` on ``n_steps`` equal steps up to ``horizon``."""
+
+    def __init__(self, model: HullWhite, horizon: float, n_steps: int) -> None:
+        if model.sigma.size != 1:
+            raise ValueError("the trinomial tree needs a constant volatility")
+        self.model = model
+        super().__init__(model.curve, model.a, float(model.sigma[0]), horizon, n_steps)
+
+    def node_rates(self, alpha: float, x: np.ndarray) -> np.ndarray:
+        return alpha + x
+
+    def _solve_alpha(self, Q: np.ndarray, x: np.ndarray, target: float) -> float:
+        # closed form: sum Q e^{-(alpha + x) dt} = P(0, t_{m+1})
+        return math.log(float(np.sum(Q * np.exp(-x * self.dt))) / target) / self.dt
