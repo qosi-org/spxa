@@ -72,3 +72,25 @@ def test_validation() -> None:
         calibrate_svi_surface([1.0, 0.5], [K, K], [SHORT(K), LONG(K)])
     with pytest.raises(ValueError, match="one strike"):
         calibrate_svi_surface([0.5, 1.0], [K], [SHORT(K)])
+
+
+def test_slsqp_mode_8_at_a_feasible_point_counts_as_converged() -> None:
+    # SciPy 1.15's SLSQP can end the calendar-constrained fit above in mode 8
+    # ("positive directional derivative for linesearch") at the optimum; the fit
+    # must still report success there, and only there
+    from types import SimpleNamespace
+
+    from spxa.vol.calibration import _slsqp_converged
+
+    cons = [{"type": "ineq", "fun": lambda x: np.array([x[0] - 1.0, 2.0 - x[0]])}]
+    bounds = [(0.0, 3.0)]
+
+    def res(x: float, status: int) -> SimpleNamespace:
+        return SimpleNamespace(x=np.array([x]), status=status, success=status == 0)
+
+    assert _slsqp_converged(res(1.5, 0), cons, bounds)
+    assert _slsqp_converged(res(1.5, 8), cons, bounds)
+    assert _slsqp_converged(res(1.0 - 1e-12, 8), cons, bounds)
+    assert not _slsqp_converged(res(0.5, 8), cons, bounds)  # violates a constraint
+    assert not _slsqp_converged(res(1.5 + 2.0, 8), cons, bounds)  # outside the bounds
+    assert not _slsqp_converged(res(1.5, 9), cons, bounds)  # iteration limit

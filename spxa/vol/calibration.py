@@ -132,6 +132,28 @@ class SVIFit:
     success: bool
 
 
+def _slsqp_converged(r: Any, cons: list[dict[str, Any]], bounds: Any, tol: float = 1e-10) -> bool:
+    """Whether an SLSQP result is a solution.
+
+    Besides ``success``, this accepts exit mode 8 ("positive directional
+    derivative for linesearch") at a feasible point. With the very tight
+    ``ftol`` used here, SLSQP returns mode 8 when the last line search cannot
+    lower the objective in floating point, i.e. at the optimum. Whether a run
+    ends in mode 0 or mode 8 depends on the SciPy version and the CPU's
+    rounding.
+    """
+    if r.success:
+        return True
+    if r.status != 8:
+        return False
+    x = np.asarray(r.x, float)
+    lo = np.array([b[0] for b in bounds], float)
+    hi = np.array([b[1] for b in bounds], float)
+    if np.any(x < lo - tol) or np.any(x > hi + tol):
+        return False
+    return all(float(np.min(np.atleast_1d(c["fun"](x)))) >= -tol for c in cons)
+
+
 def calibrate_svi(
     k: Any,
     w: Any,
@@ -311,7 +333,7 @@ def calibrate_svi_butterfly_free(
             else []
         )
         if not cuts and not ccuts:
-            ok = bool(r.success)
+            ok = _slsqp_converged(r, cons, bounds)
             break
         active = np.union1d(active, cuts)
         active_cal = np.union1d(active_cal, ccuts)
@@ -446,7 +468,7 @@ def calibrate_ssvi(
     )
     surface = SSVI(float(x[0]), phi_obj, curve)
     rmse = float(np.sqrt(obj(x) * scale / w_all.size))
-    return SSVIFit(surface, thetas, rmse, bool(best.success))
+    return SSVIFit(surface, thetas, rmse, _slsqp_converged(best, cons, bounds))
 
 
 @dataclass(frozen=True)
