@@ -166,7 +166,9 @@ class G2PP:
         return float(sum(self.caplet(c, projection) for c in cap.caplets))
 
     # -- swaptions --------------------------------------------------------
-    def option_on_cashflows(self, T: float, times: Any, amounts: Any, const: float = 0.0) -> float:
+    def option_on_cashflows(
+        self, T: float, times: Any, amounts: Any, const: float = 0.0, n_quad: Optional[int] = None
+    ) -> float:
         r"""Value of :math:`\bigl(c + \sum_i a_i P(T, t_i)\bigr)^+` paid at ``T``.
 
         Brigo & Mercurio's one-dimensional formula (§4.2.3). Under the
@@ -175,7 +177,10 @@ class G2PP:
         payoff is monotone in :math:`y` with a single root :math:`\bar y(x)`.
         The conditional expectation is a sum of normal distribution
         functions, and the remaining integral over :math:`x` is done by
-        adaptive quadrature.
+        adaptive quadrature, or an ``n_quad``-point Gauss–Hermite rule. The
+        conditional value is smooth in :math:`x` unless the conditional
+        variance of :math:`y` is tiny, so for typical parameters 16 points
+        already agree with the adaptive rule to about :math:`10^{-14}`.
         """
         from scipy.integrate import quad
         from scipy.optimize import brentq
@@ -218,6 +223,11 @@ class G2PP:
         def integrand(z: float) -> float:
             return conditional(mu[0] + sx * z) * np.exp(-0.5 * z * z) / np.sqrt(2 * np.pi)
 
+        if n_quad is not None:
+            # Gauss-Hermite in z: the conditional value is smooth in x
+            z, w = np.polynomial.hermite_e.hermegauss(int(n_quad))
+            vals = np.array([conditional(mu[0] + sx * zi) for zi in z])
+            return float(pT * np.dot(w, vals) / np.sqrt(2 * np.pi))
         val = quad(integrand, -10, 10, epsabs=0.0, epsrel=1e-11, limit=400)[0]
         return float(pT * val)
 

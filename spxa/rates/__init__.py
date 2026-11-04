@@ -104,7 +104,11 @@ G2++
     :class:`G2PP`: two-factor Gaussian G2++ model fitted to a discount curve.
 G2++ simulation
     :func:`g2pp_paths`: exact simulation of G2++ factors and bank account.
+G2++ calibration
+    :func:`calibrate_g2pp`: least-squares G2++ calibration to swaptions and caps.
 """
+
+from spxa.rates.g2pp_calibration import G2PPCalibration, calibrate_g2pp
 
 from spxa.rates.g2pp_mc import G2PPPaths, g2pp_paths
 
@@ -449,4 +453,6 @@ __all__ = [
     "G2PP",
     "G2PPPaths",
     "g2pp_paths",
+    "G2PPCalibration",
+    "calibrate_g2pp",
 ]
