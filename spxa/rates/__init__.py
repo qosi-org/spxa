@@ -88,7 +88,11 @@ Swaption cube
     :class:`SwaptionCube`: SABR smiles on an expiry x tenor matrix, bilinear in log alpha, rho, log nu.
 CMS replication
     :class:`CMSReplication`: CMS coupons, caplets and floorlets by static replication with annuity mappings.
+Hull-White
+    :class:`HullWhite`: one-factor Hull-White fitted to a discount curve, piecewise-constant volatility.
 """
+
+from spxa.rates.hull_white import HullWhite
 
 from spxa.rates.cms import CMSReplication
 
@@ -398,4 +402,5 @@ __all__ = [
     "strip_caplet_vols",
     "SwaptionCube",
     "CMSReplication",
+    "HullWhite",
 ]
