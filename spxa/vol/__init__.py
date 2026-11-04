@@ -95,7 +95,14 @@ Rough Heston calibration
     :func:`calibrate_rough_heston`: least squares on implied volatilities.
 Rough Bergomi
     :func:`rbergomi_paths`: hybrid-scheme simulation with conditional pricing.
+Rough Bergomi calibration
+    :func:`calibrate_rbergomi`: smile fit with common random numbers.
 """
+
+from spxa.vol.rbergomi_calibration import (
+    RBergomiFit,
+    calibrate_rbergomi,
+)
 
 from spxa.vol.rbergomi import (
     RBergomiPaths,
@@ -377,4 +384,6 @@ __all__ = [
     "RBergomiPaths",
     "hybrid_weights",
     "rbergomi_paths",
+    "RBergomiFit",
+    "calibrate_rbergomi",
 ]
