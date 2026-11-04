@@ -48,7 +48,7 @@ from spxa.market.black import black_price
 from spxa.market.implied import implied_black_volatility
 from spxa.vol.arbitrage import risk_neutral_density
 
-__all__ = ["PriceInterpolatedSurface"]
+__all__ = ["PriceInterpolatedSurface", "VarianceInterpolatedSurface"]
 
 
 def _w(slice_: Any, k: np.ndarray) -> np.ndarray:
@@ -159,3 +159,96 @@ class PriceInterpolatedSurface:
         lo = 0.0 if i == 0 else np.asarray(risk_neutral_density(self.slices[i - 1], kk), float)
         p = a * lo + (1.0 - a) * hi
         return float(p) if np.ndim(p) == 0 else p
+
+
+class VarianceInterpolatedSurface:
+    r"""Interpolation of total variance in time, at fixed or ATM-normalised moneyness.
+
+    ``mode="fixed_k"``
+        :math:`w(k, t)` is linear in :math:`t` between slices at fixed
+        log-moneyness :math:`k`. If the slices are ordered
+        (:math:`w_i \le w_{i+1}` at every :math:`k`), there is no
+        calendar arbitrage.
+    ``mode="normalised"``
+        Interpolates :math:`w/\theta` at fixed :math:`x = k/\sqrt{\theta_t}`,
+        with :math:`\theta_t` linear in :math:`t`:
+
+        .. math:: w(k, t) = \theta_t\Bigl[\alpha\,\frac{w_i(x\sqrt{\theta_i})}{\theta_i}
+                  + (1-\alpha)\,\frac{w_{i+1}(x\sqrt{\theta_{i+1}})}{\theta_{i+1}}\Bigr],
+                  \qquad \alpha = \frac{t_{i+1} - t}{t_{i+1} - t_i}.
+
+        This is exact for SSVI with :math:`\varphi(\theta)\sqrt\theta`
+        constant, where :math:`w/\theta` is a function of :math:`x` alone.
+        Smiles move with the ATM variance instead of staying pinned in
+        :math:`k`.
+
+    Before :math:`t_1`, both modes scale the first slice in the same way
+    (:math:`w = (t/t_1)\,w_1(k)` for ``fixed_k``; the normalised shape of
+    slice 1 for ``normalised``). After :math:`t_n` they extrapolate at
+    the constant forward variance of the last two slices, or at constant
+    implied volatility when there is a single slice. Neither mode
+    guarantees the absence of butterfly arbitrage: total variances do not
+    combine linearly like prices (see :class:`PriceInterpolatedSurface`
+    for that).
+    """
+
+    def __init__(
+        self, expiries: Sequence[float], slices: Sequence[Any], mode: str = "fixed_k"
+    ) -> None:
+        if mode not in ("fixed_k", "normalised"):
+            raise ValueError("mode must be 'fixed_k' or 'normalised'")
+        t = np.asarray(expiries, float)
+        if t.ndim != 1 or t.size == 0 or t.size != len(slices):
+            raise ValueError("need one slice per expiry")
+        if t[0] <= 0 or np.any(np.diff(t) <= 0):
+            raise ValueError("expiries must be positive and strictly increasing")
+        self.expiries, self.slices, self.mode = t, list(slices), mode
+        self.thetas = np.array([float(_w(s, np.zeros(1))[0]) for s in self.slices])
+        if np.any(self.thetas <= 0) or np.any(np.diff(self.thetas) <= 0):
+            raise ValueError("ATM total variances must be positive and strictly increasing")
+
+    def theta(self, t: float) -> float:
+        """ATM total variance: linear between slices, from 0 at t = 0, extrapolated linearly."""
+        ts, th = self.expiries, self.thetas
+        if t <= ts[-1]:
+            return float(np.interp(t, np.concatenate([[0.0], ts]), np.concatenate([[0.0], th])))
+        slope = (th[-1] - th[-2]) / (ts[-1] - ts[-2]) if ts.size > 1 else th[-1] / ts[-1]
+        return float(th[-1] + slope * (t - ts[-1]))
+
+    def _pair(self, t: float) -> tuple[int, int, float]:
+        ts = self.expiries
+        if ts.size == 1:
+            return 0, 0, 1.0
+        if t <= ts[0]:
+            return 0, 0, 1.0
+        if t >= ts[-1]:
+            i = ts.size - 2
+        else:
+            i = int(np.searchsorted(ts, t, side="right") - 1)
+        return i, i + 1, float((ts[i + 1] - t) / (ts[i + 1] - ts[i]))
+
+    def total_variance(self, k: Any, t: float) -> Any:
+        if t <= 0:
+            raise ValueError("t must be positive")
+        ka = np.asarray(k, float)
+        ts = self.expiries
+        i, j, a = self._pair(t)
+        if self.mode == "fixed_k":
+            if t <= ts[0] or ts.size == 1:
+                w = (t / ts[0]) * _w(self.slices[0], ka)
+            else:  # linear in t, also beyond the last slice (a < 0)
+                w = a * _w(self.slices[i], ka) + (1 - a) * _w(self.slices[j], ka)
+        else:
+            th = self.theta(t)
+            x = ka / np.sqrt(th)
+            si, sj = np.sqrt(self.thetas[i]), np.sqrt(self.thetas[j])
+            ni = _w(self.slices[i], x * si) / self.thetas[i]
+            if i == j:
+                w = th * ni
+            else:
+                w = th * (a * ni + (1 - a) * _w(self.slices[j], x * sj) / self.thetas[j])
+        w = np.asarray(w, float)
+        return w if w.ndim else float(w)
+
+    def implied_vol(self, k: Any, t: float) -> Any:
+        return np.sqrt(np.asarray(self.total_variance(k, t), float) / t)

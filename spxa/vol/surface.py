@@ -24,7 +24,7 @@ import numpy as np
 
 from spxa.market.black import black_price
 from spxa.market.curves import EquityForward
-from spxa.vol.interpolation import PriceInterpolatedSurface
+from spxa.vol.interpolation import PriceInterpolatedSurface, VarianceInterpolatedSurface
 
 __all__ = ["TotalVarianceModel", "ForwardLike", "VolSurface"]
 
@@ -88,10 +88,21 @@ class VolSurface:
 
     @classmethod
     def from_slices(
-        cls, expiries: Sequence[float], slices: Sequence[Any], forward: ForwardLike
+        cls,
+        expiries: Sequence[float],
+        slices: Sequence[Any],
+        forward: ForwardLike,
+        time_interpolation: str = "price",
     ) -> "VolSurface":
-        """Slices joined by Gatheral–Jacquier price interpolation (no extrapolation)."""
-        return cls(PriceInterpolatedSurface(expiries, slices), forward)
+        """Slices joined in time.
+
+        ``"price"`` uses Gatheral–Jacquier price interpolation, with no
+        extrapolation. ``"fixed_k"`` and ``"normalised"`` use
+        :class:`~spxa.vol.VarianceInterpolatedSurface`, which extrapolates.
+        """
+        if time_interpolation == "price":
+            return cls(PriceInterpolatedSurface(expiries, slices), forward)
+        return cls(VarianceInterpolatedSurface(expiries, slices, time_interpolation), forward)
 
     @classmethod
     def from_spot(
