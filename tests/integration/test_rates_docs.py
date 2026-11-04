@@ -471,3 +471,26 @@ class TestShortRateModels:
         assert (q.a_bar, q.sigma1, q.b_bar, q.sigma2, q.rho_bar) == pytest.approx(
             (0.6, 0.012, 0.05, 0.004, -0.3), rel=1e-12
         )
+
+
+class TestHJMAndCheyette:
+    REF = D(2024, 3, 15)
+    DISC = FlatCurve(0.03, reference_date=D(2024, 3, 15))
+    PROJ = FlatCurve(0.034, reference_date=D(2024, 3, 15))
+
+    def test_section_numbers_in_text(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in ("$\\tau = 1/\\gamma - \\alpha/\\beta$",):
+            assert s in text, s
+
+    def test_hump_peak(self) -> None:
+        v = r.hump_vol(0.004, 0.006, 0.4)
+        taus = np.linspace(0.0, 10.0, 100001)
+        assert taus[np.argmax(v(0.0, taus))] == pytest.approx(1 / 0.4 - 0.004 / 0.006, abs=1e-4)
+
+    def test_hjm_reproduces_hull_white(self) -> None:
+        hw = r.HullWhite(self.DISC, 0.05, [0.012, 0.009], [2.0])
+        hjm = r.GaussianHJM.from_hull_white(hw)
+        assert hjm.zcb_option(3.0, 8.0, 0.85) == pytest.approx(
+            hw.zcb_option(3.0, 8.0, 0.85), rel=1e-11
+        )

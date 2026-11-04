@@ -28,6 +28,7 @@
 | Two-factor Gaussian | `G2PP`, `g2pp_paths`, `calibrate_g2pp`, `HullWhite2F` |
 | Positive short rates | `BlackKarasinski`, `BlackKarasinskiTree`, `black_karasinski_paths`, `CIRPlusPlus` |
 | Model interface | `ShortRateModel`, `model_price`, `model_implied_vols` |
+| Gaussian HJM | `GaussianHJM`, `exponential_vol`, `hump_vol`, `hjm_paths` |
 
 ---
 
@@ -352,3 +353,19 @@ In G2++ (Brigo & Mercurio, §4.2) $r = x + y + \varphi(t)$, with two correlated 
 ### 9.5 Positive rates: Black–Karasinski and CIR++
 
 Gaussian models give negative rates. For $a = 0.1$ and $\sigma = 0.85\%$, the 10-year Hull–White tree reaches $-9.2\%$ at its lowest node. In Black–Karasinski $\log r$ is an Ornstein–Uhlenbeck process, so rates stay positive. There are no closed forms, so `BlackKarasinskiTree` solves for each step's drift by Newton's method to fit the curve, and `black_karasinski_paths` simulates on the fitted drift. CIR++ (Brigo & Mercurio, 2001) shifts a CIR factor by $\varphi = f^M - f^{\rm CIR}$. It keeps CIR's closed forms: bond options are scaled non-central $\chi^2$ formulas, and swaptions follow by Jamshidian, since bond prices decrease in $x$. Rates stay above $\varphi$. With $\kappa = 0.3$, $\theta = 2.5\%$, $\sigma = 0.08$ and $x_0 = 2\%$ on the flat 3% curve, $\varphi$ is positive out to 30 years. The square-root diffusion also produces a smile. For a 2Y×5Y swaption at the money and $\pm 100$ bp, this CIR++ gives normal vols of $27.48$, $46.42$ and $57.09$ bp, while Hull–White ($a = 0.05$, $\sigma = 1\%$) is nearly flat at $86.64$, $87.14$ and $87.65$ bp.
+
+## 10. HJM and Cheyette
+
+### 10.1 Gaussian HJM
+
+Heath, Jarrow and Morton model the whole forward curve. With a deterministic vector volatility $\sigma(t, T)$ driving independent Brownian motions,
+
+$$
+df(t, T) = \sigma(t, T)\cdot\Sigma(t, T)\,dt + \sigma(t, T)\cdot dW_t, \qquad \Sigma(t, T) = \int_t^T \sigma(t, s)\,ds,
+$$
+
+and the drift is forced by no-arbitrage, so `GaussianHJM` fits the initial curve for any choice of volatility. Bonds are lognormal, and under the $T$-forward measure $P(t, S)/P(t, T)$ has log-variance $\int_0^T |\Sigma(u, S) - \Sigma(u, T)|^2\,du$. Bond options and caplets are therefore Black formulas. `exponential_vol` ($\sigma e^{-a(T-t)}$) gives Hull–White, and two exponential factors with correlated loadings give G2++. `GaussianHJM.from_hull_white` covers piecewise-constant volatility: its jump times are passed as `breakpoints`, so the quadrature never straddles a jump. `hump_vol` gives $(\alpha + \beta\tau)e^{-\gamma\tau}$ in time to maturity $\tau = T - t$. It peaks at $\tau = 1/\gamma - \alpha/\beta$, the hump seen in historical forward-rate volatilities.
+
+### 10.2 Simulating the curve
+
+`hjm_paths` evolves log deflated bonds $Z(t, T_j) = P(t, T_j)/B(t)$ on a maturity grid. Each step freezes $\Sigma$ at its start, and the increment $-\tfrac12|\Sigma|^2\Delta t - \Sigma\cdot\Delta W$ has $E[e^{\cdot}] = 1$ exactly. Every $Z(\cdot, T_j)$ is then a discrete martingale, and the curve is repriced with no discretisation bias. The deflator is $Z(t, t)$. The remaining error sits in option prices, through the left-point variance $\sum_k |\Sigma(t_k, S) - \Sigma(t_k, T)|^2\Delta t$. The simulated payoff is priced exactly by Black at that variance, which converges at first order.
