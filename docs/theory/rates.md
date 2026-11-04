@@ -18,6 +18,8 @@
 | Turns and policy steps | `ForwardSpread`, `turn_of_year`, `SpreadAdjustedCurve`, `flat_forward_curve`, `meeting_date_curve` |
 | Parametric curves | `NelsonSiegelSvensson`, `nelson_siegel`, `fit_nss`, `fit_nss_zero_rates` |
 | Curve sets and diagnostics | `CurveSet`, `compare_schemes`, `bump_locality`, `forward_roughness` |
+| Curve risk | `node_deltas`, `quote_deltas`, `quote_jacobian`, `key_rate_deltas`, `KeyRateShiftedCurve`, `node_gamma`, `pnl_explain` |
+| Hedging and factors | `hedge_notionals`, `par_hedge`, `curve_pca`, `CurvePCA` |
 
 ---
 
@@ -226,3 +228,39 @@ so $f(0) = z(0^+) = \beta_0 + \beta_1$ and $z(\infty) = \beta_0$. Nelson–Siege
 ### 6.6 Curve sets
 
 A `CurveSet` is a mapping of named curves with a discount role and an index-to-curve projection map. Helpers read it directly, and `pv` prices swaps and basis swaps by the index on each floating leg.
+
+---
+
+## 7. Curve risk
+
+### 7.1 Node and quote deltas
+
+A fitted curve is a function of its node values $x_j = -\log P(t_j)$, and a price $V$ is a function of the curves. `node_deltas` returns $\partial V/\partial x_j$ by central differences, leaving the interpolation scheme and any turn spreads in place. The fit makes the helper model quotes $m(x)$ equal to the market quotes $q$. By the implicit function theorem $\partial x/\partial q = J^{-1}$ with $J = \partial m/\partial x$, so
+
+$$
+\frac{\partial V}{\partial q} = J^{-\top}\,\frac{\partial V}{\partial x}.
+$$
+
+`quote_deltas` evaluates this from one Jacobian instead of one re-bootstrap per quote. The result is the sensitivity to each quote with the others held fixed, exactly what bumping a quote and refitting gives. It takes a single-curve `BootstrapResult` or a multi-curve `GlobalFitResult`. For the latter, nodes and helpers are stacked across curves, so cross effects are included.
+
+A par swap identical to helper $i$ is a useful check. Its value is $(S - K)A$, and with the other quotes fixed only its own par rate $S = q_i$ can move. Its quote deltas are therefore exactly $A\,e_i$: the annuity on its own quote and zero elsewhere, OIS quotes included in a dual-curve fit.
+
+### 7.2 Key-rate deltas
+
+Key-rate deltas (Ho, 1992) need no fit. The zero curve of any `YieldCurve` is moved by triangular hats $h_k(t)$ centred on key tenors and flat beyond the first and last keys:
+
+$$
+P'(t) = P(t)\exp\Bigl(-t\sum_k b_k\,h_k(t)\Bigr).
+$$
+
+The hats sum to one, so key-rate deltas add up to the parallel delta to first order. A zero-coupon bond maturing on a key has delta $-T\,P(T)$ on that key and none elsewhere. At a flat 3% continuously compounded rate, this is $-5e^{-0.15} = -4.30354$ for $T = 5$.
+
+### 7.3 Hedging and P&L explain
+
+`hedge_notionals` minimises $\lVert W^{1/2}(d + Hn)\rVert_2$ over hedge notionals $n$, where $d$ is the book's risk and column $j$ of $H$ is the risk of one unit of hedge $j$. With par swaps on every pillar, $H$ is diagonal with the annuities, so $n_i = -d_i/A_i$. With fewer hedges than buckets, the residual is $W$-orthogonal to every hedge.
+
+Between two fits on the same nodes, `pnl_explain` splits the change in value into $\delta^\top\Delta x$ and $\tfrac12\Delta x^\top\Gamma\Delta x$, with $\Gamma$ from `node_gamma`. The remainder is third order. For a zero-coupon bond on a node it is exactly $-P\,\Delta x^3/6$ to leading order. For an 8-year OIS, multiplying a market move by five multiplies the remainder by about $5^3 = 125$.
+
+### 7.4 Principal components
+
+`curve_pca` diagonalises the sample covariance of zero-rate changes on fixed tenors. Its first three loadings are level, slope and curvature (Litterman & Scheinkman, 1991). Signs are fixed so that the level loadings sum to a positive number, the slope rises from short to long tenors, and the curvature is positive at the middle tenor. For a book with key-rate deltas $d$ on the same tenors, the factor deltas are $d^\top v_j$. The book's P&L variance under the retained factors is $\sum_j\lambda_j(d^\top v_j)^2$, which equals the first-order P&L variance when the changes have exactly that rank.
