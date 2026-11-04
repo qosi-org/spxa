@@ -166,7 +166,14 @@ class TrinomialShortRateTree:
         """Option on the bond maturing at ``S``, expiring at ``T`` (both on the grid)."""
         eta = 1.0 if option == "call" else -1.0
         mT = self.step(T)
-        bonds = {m: self.discount_bonds(m, S) for m in (range(mT + 1) if american else [mT])}
+        # one rollback from S gives the bond at every step up to T
+        bonds: dict[int, np.ndarray] = {}
+        v = np.ones(2 * self.width(self.step(S)) + 1)
+        for k in range(self.step(S), -1, -1):
+            if k <= mT and (american or k == mT):
+                bonds[k] = v
+            if k > 0:
+                v = self.rollback(v, k)
 
         def pay(m: int, r: np.ndarray) -> np.ndarray:
             return np.maximum(eta * (bonds[m] - K), 0.0)
