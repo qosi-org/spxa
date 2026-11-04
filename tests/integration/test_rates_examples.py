@@ -30,3 +30,16 @@ def test_vol_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "cube at 5Y x 10Y: alpha 0.0350, rho -0.2000" in out
     assert "smile lowers the adjustment (skewed right wing): True" in out
     assert "nan" not in out and ": False" not in out
+
+
+def test_short_rate_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "rates_short_rate_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "swaptions reprice (< 1e-10): True" in out
+    assert "PDE 0.009495" in out
+    assert "a 0.4873, sigma 0.00991, b 0.0406, eta 0.00806, rho -0.606" in out
+    assert "max vol error 0.057 bp" in out
+    assert "Hull-White  86.64  87.14  87.65" in out
+    assert "CIR++       27.48  46.42  57.09" in out
+    assert "within 4 standard errors: True" in out
+    assert "nan" not in out and ": False" not in out
