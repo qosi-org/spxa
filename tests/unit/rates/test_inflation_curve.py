@@ -90,3 +90,20 @@ def test_interpolated_index_needs_month_start() -> None:
         bootstrap_inflation_curve(cpi, "2025-04-15", {1: 0.025})
     with pytest.raises(ValueError):
         Seasonality((0.0,) * 11)
+
+
+def test_seasonality_estimated_from_history() -> None:
+    # ten years of fixings with 2% trend and a known seasonal pattern, plus small noise
+    rng = np.random.default_rng(0)
+    pattern = np.array(SEASON.factors)
+    logs = [math.log(100.0)]
+    for k in range(120):
+        logs.append(logs[-1] + math.log(1.02) / 12 + pattern[k % 12] + 1e-4 * rng.standard_normal())
+    fixings = CPIFixings.from_series("CPI", "2015-01-01", np.exp(logs))
+    est = Seasonality.estimate(fixings)
+    assert np.abs(np.array(est.factors) - pattern).max() < 1e-4
+    assert sum(est.factors) == pytest.approx(0.0, abs=1e-15)
+    recent = Seasonality.estimate(fixings, years=3)
+    assert np.abs(np.array(recent.factors) - pattern).max() < 2e-4
+    with pytest.raises(ValueError):
+        Seasonality.estimate(CPIFixings.from_pairs("x", [("2020-01-01", 1.0), ("2020-03-01", 1.0)]))

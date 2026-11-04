@@ -170,6 +170,22 @@ class Seasonality:
         mean = sum(self.factors) / 12.0
         object.__setattr__(self, "factors", tuple(float(f) - mean for f in self.factors))
 
+    @classmethod
+    def estimate(cls, fixings: CPIFixings, years: Optional[int] = None) -> "Seasonality":
+        """Average monthly log change by calendar month over the last ``years`` full years of
+        consecutive fixings (all available by default), demeaned. Months with no data get zero."""
+        months = sorted(fixings.levels)
+        if years is not None:
+            months = months[-(12 * years + 1) :]
+        sums, counts = [0.0] * 12, [0] * 12
+        for a, b in zip(months, months[1:]):
+            if _months_between(a, b) == 1:
+                sums[a.month - 1] += math.log(fixings.levels[b] / fixings.levels[a])
+                counts[a.month - 1] += 1
+        if not any(counts):
+            raise ValueError("need consecutive monthly fixings")
+        return cls(tuple(sm / c if c else 0.0 for sm, c in zip(sums, counts)))
+
     def adjustment(self, month: DateLike, base_month: DateLike) -> float:
         """Seasonal factor of ``month`` relative to ``base_month``."""
         a, b = month_start(base_month), month_start(month)
