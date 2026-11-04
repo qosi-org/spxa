@@ -103,6 +103,9 @@ class RBergomiPaths:
         return np.asarray(implied_black_volatility(otm, self.s0, Ks, self.T, 1.0, kind), float)
 
 
+_BLOCK = 4096
+
+
 def rbergomi_paths(
     hurst: float,
     eta: float,
@@ -131,22 +134,33 @@ def rbergomi_paths(
     L = np.linalg.cholesky(cov)
     z = rng.standard_normal((half, n, 2)) @ L.T
     zp = rng.standard_normal((half, n)) * math.sqrt(dt)
-    z = np.concatenate([z, -z])[:n_paths]
-    zp = np.concatenate([zp, -zp])[:n_paths]
-    dW, Wt = z[..., 0], z[..., 1]
     w, var = hybrid_weights(hurst, dt, n)
-    # Y_i / sqrt(2H) = Wt_{i-1} + sum_{k=2}^{i} w_k dW_{i-k}, i = 1..n
-    conv = fftconvolve(dW, np.r_[0.0, 0.0, w][None, :], axes=1)[:, 1 : n + 1]
-    Y = np.zeros((n_paths, n + 1))
-    Y[:, 1:] = math.sqrt(2 * hurst) * (Wt + conv)
+    kernel = np.r_[0.0, 0.0, w][None, :]
     times = np.linspace(0.0, T, n + 1)
     xi_t = np.full(n + 1, float(xi)) if np.isscalar(xi) else np.asarray(xi(times), float)  # type: ignore[operator, arg-type]
-    v = xi_t * np.exp(eta * Y - 0.5 * eta * eta * 2 * hurst * var)
-    sv = np.sqrt(v[:, :-1])
-    int_v = v[:, :-1].sum(axis=1) * dt
-    int_sv_dw = (sv * dW).sum(axis=1)
-    dB = rho * dW + math.sqrt(1 - rho * rho) * zp
-    log_s = math.log(s0) + (sv * dB).sum(axis=1) - 0.5 * int_v
+    comp = 0.5 * eta * eta * 2 * hurst * var
+    int_v, int_sv_dw, log_s = np.empty(n_paths), np.empty(n_paths), np.empty(n_paths)
+    v_all = np.empty((n_paths, n + 1)) if keep_variance else None
+    # paths are [z, -z][:n_paths]; process in blocks to bound memory (the FFT is the peak)
+    for sign, offset in ((1.0, 0), (-1.0, half)):
+        for lo in range(0, half, _BLOCK):
+            hi = min(lo + _BLOCK, half, n_paths - offset)
+            if hi <= lo:
+                break
+            dW, Wt = sign * z[lo:hi, :, 0], sign * z[lo:hi, :, 1]
+            # Y_i / sqrt(2H) = Wt_{i-1} + sum_{k=2}^{i} w_k dW_{i-k}, i = 1..n
+            conv = fftconvolve(dW, kernel, axes=1)[:, 1 : n + 1]
+            Y = np.zeros((hi - lo, n + 1))
+            Y[:, 1:] = math.sqrt(2 * hurst) * (Wt + conv)
+            v = xi_t * np.exp(eta * Y - comp)
+            sv = np.sqrt(v[:, :-1])
+            rows = slice(offset + lo, offset + hi)
+            int_v[rows] = v[:, :-1].sum(axis=1) * dt
+            int_sv_dw[rows] = (sv * dW).sum(axis=1)
+            dB = rho * dW + math.sqrt(1 - rho * rho) * (sign * zp[lo:hi])
+            log_s[rows] = math.log(s0) + (sv * dB).sum(axis=1) - 0.5 * int_v[rows]
+            if v_all is not None:
+                v_all[rows] = v
     return RBergomiPaths(
         float(s0),
         float(rho),
@@ -155,5 +169,5 @@ def rbergomi_paths(
         int_sv_dw,
         np.exp(log_s),
         times,
-        v if keep_variance else None,
+        v_all,
     )
