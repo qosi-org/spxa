@@ -39,9 +39,9 @@ from scipy.sparse.linalg import splu
 
 from spxa.pde.adi import Dirichlet2D, DiscreteOperator2D, Grid2D, LinearPDE2D, Natural2D
 from spxa.vol.heston import Heston
-from spxa.vol.slv import SLVGrid
+from spxa.vol.slv import LeverageSurface, SLVGrid, slv_grid
 
-__all__ = ["SLVDensity", "SLVForward", "slv_forward"]
+__all__ = ["LeverageCalibration", "SLVDensity", "SLVForward", "calibrate_leverage", "slv_forward"]
 
 Leverage = Callable[[np.ndarray, float], Any]
 _HV_THETA = 0.5 + math.sqrt(3.0) / 6.0
@@ -184,6 +184,44 @@ def _time_grid(T: float, n_time: int, record: Sequence[float]) -> np.ndarray:
     return np.unique(np.round(np.concatenate([ts, extra]), 14))
 
 
+def _march(
+    model: Heston,
+    grid: SLVGrid,
+    T: float,
+    n_time: int,
+    record: Sequence[float],
+    damping_steps: int,
+    leverage_at: Callable[[float, float, SLVDensity], np.ndarray],
+) -> tuple[SLVForward, list[np.ndarray]]:
+    if T <= 0:
+        raise ValueError("T must be positive")
+    st = _ForwardStepper(model, grid)
+    ts = _time_grid(T, n_time, record)
+    keep = {float(t) for t in record} | {float(ts[-1])}
+    i0, j0 = grid.node(0.0, model.v0)
+    p = np.zeros(grid.shape)
+    p[i0, j0] = 1.0 / grid.weights[i0, j0]
+    u = p.ravel()
+    out = SLVForward(grid, ts)
+    rows = []
+    for n in range(ts.size - 1):
+        t0, t1 = float(ts[n]), float(ts[n + 1])
+        lev = np.broadcast_to(
+            leverage_at(t0, t1, SLVDensity(grid, t0, u.reshape(grid.shape))), grid.y.nodes.shape
+        )
+        rows.append(np.array(lev, float))
+        P = st.matrices(lev)
+        if n < damping_steps:
+            h = 0.5 * (t1 - t0)
+            u = st.step(st.step(u, P, h, True), P, h, True)
+        else:
+            u = st.step(u, P, t1 - t0, False)
+        if any(abs(t1 - k) < 1e-12 for k in keep):
+            out.densities[t1] = SLVDensity(grid, t1, u.reshape(grid.shape).copy())
+    out.n_factorisations = st.n_fact
+    return out, rows
+
+
 def slv_forward(
     model: Heston,
     grid: SLVGrid,
@@ -203,26 +241,76 @@ def slv_forward(
         Extra times at which to keep the density; they are added to the
         time grid.
     """
-    if T <= 0:
-        raise ValueError("T must be positive")
     lev = leverage if leverage is not None else (lambda y, t: np.ones_like(y))
-    st = _ForwardStepper(model, grid)
-    ts = _time_grid(T, n_time, record)
-    keep = {float(t) for t in record} | {float(ts[-1])}
-    i0, j0 = grid.node(0.0, model.v0)
-    p = np.zeros(grid.shape)
-    p[i0, j0] = 1.0 / grid.weights[i0, j0]
-    u = p.ravel()
-    out = SLVForward(grid, ts)
-    for n in range(ts.size - 1):
-        t0, t1 = float(ts[n]), float(ts[n + 1])
-        P = st.matrices(np.broadcast_to(lev(grid.y.nodes, t0), grid.y.nodes.shape))
-        if n < damping_steps:
-            h = 0.5 * (t1 - t0)
-            u = st.step(st.step(u, P, h, True), P, h, True)
-        else:
-            u = st.step(u, P, t1 - t0, False)
-        if any(abs(t1 - k) < 1e-12 for k in keep):
-            out.densities[t1] = SLVDensity(grid, t1, u.reshape(grid.shape).copy())
-    out.n_factorisations = st.n_fact
+    out, _ = _march(
+        model, grid, T, n_time, record, damping_steps, lambda t0, t1, d: lev(grid.y.nodes, t0)
+    )
     return out
+
+
+@dataclass
+class LeverageCalibration:
+    """Calibrated leverage with the SLV densities it produces."""
+
+    model: Heston
+    leverage: LeverageSurface
+    forward: SLVForward
+
+    def smile(self, k: Any, t: float) -> Any:
+        """Implied vols of the calibrated SLV model at a recorded time."""
+        return self.forward[t].implied_vol(k)
+
+
+def _local_variance(local_vol: Any) -> Callable[[np.ndarray, float], np.ndarray]:
+    if hasattr(local_vol, "local_variance_k"):
+        return lambda y, t: np.asarray(local_vol.local_variance_k(y, t), float)
+    return lambda y, t: np.asarray(local_vol(y, t), float) ** 2
+
+
+def calibrate_leverage(
+    local_vol: Any,
+    model: Heston,
+    T: float,
+    grid: Optional[SLVGrid] = None,
+    n_time: int = 100,
+    record: Sequence[float] = (),
+    damping_steps: int = 2,
+    floor: float = 1e-6,
+    bounds: tuple[float, float] = (0.05, 10.0),
+) -> LeverageCalibration:
+    r"""Leverage :math:`L^2 = \sigma_{LV}^2 / E[v \mid y]` by forward induction.
+
+    At each step the conditional variance is read from the current
+    density, the leverage for the step is set from the local variance at
+    the step's midpoint, and the density is advanced with it
+    (Ren, Madan & Qian 2007; Guyon & Henry-Labordère 2012).
+
+    Parameters
+    ----------
+    local_vol
+        An object with ``local_variance_k(y, t)`` in log-forward moneyness
+        (:class:`LocalVolSurface`, :class:`LocalVolGrid`) or a callable
+        ``sigma(y, t)``.
+    model : Heston
+        The stochastic-volatility component (already scaled by any
+        mixing fraction).
+    floor : float
+        Relative marginal density below which :math:`E[v \mid y]` is
+        extended flat from the nearest informative node.
+    bounds : (float, float)
+        Clip on the leverage.
+    """
+    lv2 = _local_variance(local_vol)
+    if grid is None:
+        atm = float(np.sqrt(np.max(lv2(np.zeros(1), 0.5 * T))))
+        grid = slv_grid(model, T, vol=atm)
+    g = grid
+
+    def leverage_at(t0: float, t1: float, d: SLVDensity) -> np.ndarray:
+        ev = d.conditional_variance(floor) if t0 > 0 else np.full(g.y.n, model.v0)
+        L2 = lv2(g.y.nodes, 0.5 * (t0 + t1)) / np.maximum(ev, 1e-12)
+        return np.asarray(np.clip(np.sqrt(L2), *bounds))
+
+    fwd, rows = _march(model, g, T, n_time, record, damping_steps, leverage_at)
+    surf = LeverageSurface(fwd.times[:-1], g.y.nodes, np.vstack(rows))
+    return LeverageCalibration(model, surf, fwd)

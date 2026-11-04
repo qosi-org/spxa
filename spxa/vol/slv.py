@@ -50,6 +50,10 @@ def variance_quantile(model: Heston, t: float, q: float) -> float:
         return model.v0
     c = model.xi**2 * (1 - math.exp(-model.kappa * t)) / (4 * model.kappa)
     df = 4 * model.kappa * model.theta / model.xi**2
+    if df > 1e6:  # near-deterministic variance: the normal limit
+        from scipy.stats import norm
+
+        return float(model.mean_variance(t) + norm.ppf(q) * variance_std(model, t))
     return float(c * ncx2.ppf(q, df, model.v0 * math.exp(-model.kappa * t) / c))
 
 

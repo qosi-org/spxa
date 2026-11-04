@@ -77,7 +77,14 @@ SLV grids
     :class:`SLVGrid`, :func:`slv_grid` and :class:`LeverageSurface` for stochastic local volatility.
 SLV forward equation
     :func:`slv_forward`: joint (y, v) density by the discrete adjoint of the ADI generator; :class:`SLVDensity` gives smiles and E[v|y].
+Leverage calibration
+    :func:`calibrate_leverage`: SLV leverage by forward induction on the Fokker–Planck density.
 """
+
+from spxa.vol.slv_fp import (
+    LeverageCalibration,
+    calibrate_leverage,
+)
 
 from spxa.vol.slv_fp import (
     SLVDensity,
@@ -296,4 +303,6 @@ __all__ = [
     "SLVDensity",
     "SLVForward",
     "slv_forward",
+    "LeverageCalibration",
+    "calibrate_leverage",
 ]

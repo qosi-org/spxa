@@ -51,3 +51,49 @@ def test_constant_leverage_rescales_the_variance() -> None:
             / np.sum(d.p[60] * d.grid.v.cell_widths)
         )
     )
+
+
+def _ssvi_local_vol():  # type: ignore[no-untyped-def]
+    from spxa.market import EquityForward
+    from spxa.vol import SSVI, LocalVolGrid, LocalVolSurface, PowerLawPhi, VolSurface
+
+    ss = SSVI(-0.7, PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t)
+    lv = LocalVolSurface(VolSurface(ss, EquityForward(100.0, 0.03, dividend_yield=0.01)))
+    return ss, LocalVolGrid.from_surface(
+        lv, np.linspace(-1.5, 1.5, 601), np.geomspace(1e-3, 1.0, 121)
+    )
+
+
+def test_calibrated_leverage_reprices_the_local_vol_smile() -> None:
+    from spxa.vol.slv_fp import calibrate_leverage
+
+    ss, lv = _ssvi_local_vol()
+    K2 = np.array([-0.3, -0.15, 0.0, 0.1, 0.2])
+    errs = {}
+    for eta, (ny, nv, nt) in ((0.5, (121, 61, 100)), (1.0, (81, 41, 50)), (1.0, (161, 81, 200))):
+        m = M.scaled(eta)
+        cal = calibrate_leverage(lv, m, 1.0, slv_grid(m, 1.0, ny, nv, vol=0.2), nt, record=[0.5])
+        errs[eta, ny] = [np.abs(cal.smile(K2, t) - ss.implied_vol(K2, t)).max() for t in (0.5, 1.0)]
+        assert cal.leverage.values.shape == (nt, ny)
+    assert max(errs[0.5, 121]) < 5e-4 and errs[0.5, 121][1] < 1.5e-4
+    assert max(errs[1.0, 161]) < 2.5e-4 and max(errs[1.0, 161]) < 0.35 * max(errs[1.0, 81])
+
+
+def test_heston_local_vol_is_a_fixed_point() -> None:
+    # feeding the model its own Gyongy local variance E[v | y] gives L = 1
+    from spxa.vol.slv_fp import calibrate_leverage
+
+    g = slv_grid(M, 1.0, 81, 41)
+    ts = np.linspace(0.0, 1.0, 41)
+    own = slv_forward(M, g, 1.0, 40, record=list(ts[1:-1]))
+    cond = {0.0: np.full(g.y.n, M.v0)} | {
+        t: d.conditional_variance(1e-6) for t, d in own.densities.items()
+    }
+    keys = np.array(sorted(cond))
+
+    def lv(y: np.ndarray, t: float) -> np.ndarray:
+        return np.sqrt(cond[keys[np.searchsorted(keys, t + 1e-12) - 1]])
+
+    cal = calibrate_leverage(lv, M, 1.0, g, 40)
+    np.testing.assert_allclose(cal.leverage.values, 1.0, atol=1e-9)
+    np.testing.assert_allclose(cal.forward.final.p, own.final.p, atol=1e-9 * own.final.p.max())

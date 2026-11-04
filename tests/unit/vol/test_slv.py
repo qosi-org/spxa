@@ -49,3 +49,10 @@ def test_leverage_interpolation() -> None:
     assert LeverageSurface.constant()(0.3, 2.0) == 1.0
     with pytest.raises(ValueError):
         LeverageSurface([0.0], [0.0, 1.0], [[1.0, np.nan]])
+
+
+def test_deterministic_variance_limit() -> None:
+    m = M.scaled(0.0)
+    assert variance_quantile(m, 1.0, 0.99) == pytest.approx(float(m.mean_variance(1.0)), abs=1e-10)
+    g = slv_grid(m, 1.0)
+    assert np.all(np.isfinite(g.v.nodes)) and g.v.hi == pytest.approx(3 * M.v0)
