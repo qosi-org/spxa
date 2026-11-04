@@ -46,6 +46,9 @@ Bootstrapping
     non-local ones; other curves are passed as ``known``.
     :func:`fit_curves` (:class:`CurveSpec`, :class:`GlobalFitResult`)
     solves several curves at once by Newton's method.
+Scheme diagnostics
+    :func:`compare_schemes` (:class:`SchemeDiagnostics`),
+    :func:`bump_locality` and :func:`forward_roughness`.
 Curve sets
     :class:`CurveSet`: named curves with a discount role and index
     projections; prices swaps and basis swaps by leg index.
@@ -146,6 +149,12 @@ from spxa.rates.parametric import (
     nss_loadings,
 )
 from spxa.rates.curveset import CurveSet
+from spxa.rates.diagnostics import (
+    SchemeDiagnostics,
+    bump_locality,
+    compare_schemes,
+    forward_roughness,
+)
 from spxa.rates.swaps import (
     BasisSwap,
     NotionalLike,
@@ -274,4 +283,9 @@ __all__ = [
     "NSSFit",
     # curve sets
     "CurveSet",
+    # scheme diagnostics
+    "compare_schemes",
+    "SchemeDiagnostics",
+    "bump_locality",
+    "forward_roughness",
 ]
