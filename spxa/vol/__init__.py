@@ -61,7 +61,8 @@ Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
 Local volatility
-    :class:`LocalVolSurface` and :func:`dupire_local_variance`: Dupire's formula in total-variance form.
+    :class:`LocalVolSurface` and :func:`dupire_local_variance`: Dupire's formula in total-variance form;
+    :class:`LocalVolGrid` tabulates it for fast lookups.
 Andreasen–Huge
     :class:`AndreasenHugeSurface`: one implicit Dupire step per expiry, arbitrage-free by construction;
     :func:`calibrate_andreasen_huge` fits the levels expiry by expiry.
@@ -75,7 +76,7 @@ from spxa.vol.andreasen_huge import (
     piecewise_constant_vol,
 )
 
-from spxa.vol.local_vol import LocalVolSurface, dupire_local_variance
+from spxa.vol.local_vol import LocalVolGrid, LocalVolSurface, dupire_local_variance
 
 from spxa.vol.arbitrage import (
     ButterflyCheck,
@@ -237,6 +238,7 @@ __all__ = [
     "from_dict",
     "dumps",
     "loads",
+    "LocalVolGrid",
     "LocalVolSurface",
     "dupire_local_variance",
     "AndreasenHugeSurface",

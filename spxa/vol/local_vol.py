@@ -33,7 +33,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["LocalVolSurface", "dupire_local_variance"]
+__all__ = ["LocalVolGrid", "LocalVolSurface", "dupire_local_variance"]
 
 
 def dupire_local_variance(y: Any, w: Any, w_y: Any, w_yy: Any, w_T: Any) -> Any:
@@ -133,3 +133,81 @@ class LocalVolSurface:
         from spxa.pde import BlackScholesPDE
 
         return BlackScholesPDE(r, self, q)
+
+
+class LocalVolGrid:
+    """Local variance tabulated on a (moneyness, time) grid for fast lookups.
+
+    :math:`\\sigma^2` is bilinear in :math:`(y, t)` on the grid, with
+    :math:`y = \\log(S/F_t)`, flat beyond its edges, and clipped to
+    ``[floor**2, cap**2]``. Missing values (``nan`` where the source surface
+    has arbitrage) are filled from the nearest valid value in moneyness at
+    the same time, and an all-``nan`` row raises. Bilinear interpolation in
+    the variance keeps it non-negative, and a convex combination never
+    leaves the range of the grid values.
+    """
+
+    def __init__(
+        self,
+        ys: Any,
+        ts: Any,
+        variance: Any,
+        forward: Any,
+        floor: float = 0.01,
+        cap: float = 3.0,
+    ) -> None:
+        self.ys = np.asarray(ys, float)
+        self.ts = np.asarray(ts, float)
+        v = np.array(variance, float)
+        if v.shape != (self.ts.size, self.ys.size):
+            raise ValueError("variance must have shape (len(ts), len(ys))")
+        if np.any(np.diff(self.ys) <= 0) or np.any(np.diff(self.ts) <= 0):
+            raise ValueError("grids must be strictly increasing")
+        for i in range(v.shape[0]):
+            ok = np.isfinite(v[i])
+            if not ok.any():
+                raise ValueError(f"no valid local variance at t = {self.ts[i]}")
+            if not ok.all():
+                idx = np.flatnonzero(ok)
+                near = idx[np.abs(np.arange(v.shape[1])[:, None] - idx[None, :]).argmin(axis=1)]
+                v[i] = v[i, near]
+        self.variance = np.clip(v, floor**2, cap**2)
+        self.forward = forward
+        self.floor, self.cap = float(floor), float(cap)
+
+    @classmethod
+    def from_surface(
+        cls, lv: "LocalVolSurface", ys: Any, ts: Any, floor: float = 0.01, cap: float = 3.0
+    ) -> "LocalVolGrid":
+        """Tabulate a :class:`LocalVolSurface` (times must be positive)."""
+        ts = np.asarray(ts, float)
+        var = np.vstack(
+            [np.asarray(lv.local_variance_k(np.asarray(ys, float), t), float) for t in ts]
+        )
+        return cls(ys, ts, var, lv.surface.forward, floor, cap)
+
+    def local_variance_k(self, y: Any, t: float) -> Any:
+        yy = np.clip(np.asarray(y, float), self.ys[0], self.ys[-1])
+        tt = min(max(float(t), self.ts[0]), self.ts[-1])
+        j = (
+            int(np.clip(np.searchsorted(self.ts, tt) - 1, 0, self.ts.size - 2))
+            if self.ts.size > 1
+            else 0
+        )
+        if self.ts.size == 1:
+            row = self.variance[0]
+        else:
+            a = (tt - self.ts[j]) / (self.ts[j + 1] - self.ts[j])
+            row = (1 - a) * self.variance[j] + a * self.variance[j + 1]
+        out = np.interp(yy, self.ys, row)
+        return float(out) if np.ndim(out) == 0 else out
+
+    def local_vol_k(self, y: Any, t: float) -> Any:
+        return np.sqrt(self.local_variance_k(y, t))
+
+    def __call__(self, S: Any, t: float) -> Any:
+        """``sigma(S, t)`` for the PDE and Monte Carlo engines."""
+        F = float(self.forward(max(float(t), self.ts[0])))
+        with np.errstate(divide="ignore"):
+            y = np.log(np.maximum(np.asarray(S, float), 0.0) / F)
+        return self.local_vol_k(np.maximum(y, self.ys[0]), t)
