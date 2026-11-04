@@ -11,12 +11,15 @@ from scipy.integrate import quad
 import spxa.vol as v
 from spxa.market import EquityForward
 from spxa.vol.variance_swaps import (
+    ForwardVarianceCurve,
     fair_variance,
     gamma_swap_strike,
     heston_integrated_variance_laplace,
     heston_volatility_swap,
     variance_swap_mtm,
+    variance_swap_curve,
     variance_swap_strike,
+    vix_index,
 )
 
 
@@ -105,3 +108,27 @@ def test_heston_volatility_swap() -> None:
             math.sqrt(m.expected_total_variance(T) / T), abs=1e-8
         )
     assert round(vs, 4) == 0.2090 and round(math.sqrt(ev), 4) == 0.2228
+
+
+def test_term_structure_and_forward_variance_models() -> None:
+    window = 30.0 / 365.0
+    expiries = np.array([window, 0.25, 0.5, 1.0, 2.0])
+    strikes = variance_swap_curve(SSVI_SURFACE, expiries)
+    curve = ForwardVarianceCurve(expiries, strikes)
+    assert np.all(np.diff(strikes * expiries) > 0) and np.all(curve.levels > 0)
+    np.testing.assert_allclose(curve.variance_swap(expiries), strikes, rtol=1e-14)
+    assert curve.forward_variance_swap(1.0, 2.0) == pytest.approx(curve.levels[-1], rel=1e-14)
+    assert curve.forward_variance_swap(0.0, 0.5) == pytest.approx(strikes[2], rel=1e-14)
+    assert vix_index(SSVI_SURFACE) == pytest.approx(100 * math.sqrt(strikes[0]), rel=1e-14)
+    assert round(vix_index(SSVI_SURFACE), 2) == 21.61
+    # the curve fed to rough Bergomi: E[VIX_0^2] is the 30-day strike and E[int v] the 1y strike
+    assert v.RBergomiVIX(0.1, 1.9, curve).expected_vix_squared(0.0) == pytest.approx(
+        strikes[0], rel=1e-14
+    )
+    paths = v.rbergomi_paths(0.1, 1.9, -0.9, curve, 1.0, 438, 20_000, seed=1)
+    se = paths.int_v.std() / math.sqrt(paths.int_v.size)
+    assert abs(paths.int_v.mean() - strikes[3]) < 3 * se
+    with pytest.raises(ValueError):
+        ForwardVarianceCurve([1.0, 2.0], [0.04, 0.01])  # total variance falls
+    with pytest.raises(ValueError):
+        ForwardVarianceCurve([2.0, 1.0], [0.04, 0.04])

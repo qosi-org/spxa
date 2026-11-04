@@ -114,16 +114,20 @@ Multi-marginal MOT
 Variance swaps
     :func:`variance_swap_strike`: fair variance and gamma swap strikes by replication.
     :func:`heston_volatility_swap`: exact Heston volatility swap from the Laplace transform.
+    :class:`ForwardVarianceCurve`: forward variance from variance swap strikes; :func:`vix_index`.
 
 """
 
 from spxa.vol.variance_swaps import (
+    ForwardVarianceCurve,
     fair_variance,
     gamma_swap_strike,
     heston_integrated_variance_laplace,
     heston_volatility_swap,
     variance_swap_mtm,
+    variance_swap_curve,
     variance_swap_strike,
+    vix_index,
 )
 
 from spxa.vol.mot_multi import mot_multi
@@ -315,6 +319,9 @@ from spxa.vol.wings import (
 )
 
 __all__ = [
+    "ForwardVarianceCurve",
+    "variance_swap_curve",
+    "vix_index",
     # coordinates
     "implied_vol_from_total_variance",
     "log_moneyness",

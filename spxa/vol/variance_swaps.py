@@ -34,6 +34,9 @@ from spxa.vol.conventions import normalised_call_from_total_variance
 from spxa.vol.heston import Heston
 
 __all__ = [
+    "ForwardVarianceCurve",
+    "variance_swap_curve",
+    "vix_index",
     "fair_variance",
     "gamma_swap_strike",
     "heston_integrated_variance_laplace",
@@ -171,3 +174,55 @@ def heston_volatility_swap(model: Heston, T: float) -> float:
     val = sum(quad(f, a, b, limit=200, epsabs=1e-14)[0] for a, b in zip(cuts, cuts[1:]))
     val += quad(f, cuts[-1], np.inf, limit=200, epsabs=1e-14)[0]
     return val / (2.0 * math.sqrt(math.pi)) / math.sqrt(T)
+
+
+def variance_swap_curve(surface: Any, expiries: Any) -> np.ndarray:
+    """Fair variance strikes :math:`K_{\\mathrm{var}}(T_i)` for each expiry."""
+    return np.array([variance_swap_strike(surface, float(T)) for T in np.atleast_1d(expiries)])
+
+
+class ForwardVarianceCurve:
+    r"""Piecewise-flat forward variance :math:`\xi_0(t)` from variance swap strikes.
+
+    Between expiries :math:`T_{i-1} < t \le T_i` (with :math:`T_0 = 0`), the forward variance is
+    :math:`\xi_i = (K_i T_i - K_{i-1}T_{i-1})/(T_i - T_{i-1})`, so
+    :math:`\int_0^{T_i}\xi_0 = K_i T_i`. It is flat beyond the last expiry. This is the
+    input curve of the forward-variance models (rough Bergomi, :class:`RBergomiVIX`).
+    """
+
+    def __init__(self, expiries: Any, strikes: Any) -> None:
+        T, K = np.asarray(expiries, float), np.asarray(strikes, float)
+        if T.ndim != 1 or T.shape != K.shape or T.size == 0 or np.any(np.diff(T) <= 0) or T[0] <= 0:
+            raise ValueError("need increasing positive expiries and matching strikes")
+        total = np.concatenate([[0.0], K * T])
+        xi = np.diff(total) / np.diff(np.concatenate([[0.0], T]))
+        if np.any(xi < 0):
+            raise ValueError("total variance K T must be non-decreasing (calendar arbitrage)")
+        self.expiries, self.strikes, self.levels = T, K, xi
+
+    def __call__(self, t: Any) -> np.ndarray:
+        idx = np.searchsorted(self.expiries, np.asarray(t, float), side="left")
+        return self.levels[np.minimum(idx, self.levels.size - 1)]
+
+    def integral(self, t: Any) -> np.ndarray:
+        r""":math:`\int_0^t\xi_0(u)\,du`."""
+        tt = np.asarray(t, float)
+        knots = np.concatenate([[0.0], self.expiries])
+        cum = np.concatenate([[0.0], np.cumsum(self.levels * np.diff(knots))])
+        idx = np.minimum(np.searchsorted(self.expiries, tt, side="left"), self.levels.size - 1)
+        return cum[idx] + self.levels[idx] * (tt - knots[idx])
+
+    def variance_swap(self, T: Any) -> np.ndarray:
+        """Fair variance strike implied by the curve at any maturity."""
+        return self.integral(T) / np.asarray(T, float)
+
+    def forward_variance_swap(self, T1: float, T2: float) -> float:
+        """Fair strike of a variance swap on :math:`[T_1, T_2]` seen today."""
+        if not 0 <= T1 < T2:
+            raise ValueError("need 0 <= T1 < T2")
+        return float((self.integral(T2) - self.integral(T1)) / (T2 - T1))
+
+
+def vix_index(surface: Any, delta: float = 30.0 / 365.0) -> float:
+    r"""The model-free VIX of a surface: :math:`100\sqrt{K_{\mathrm{var}}(\Delta)}` with a 30-day window."""
+    return 100.0 * math.sqrt(variance_swap_strike(surface, delta))
