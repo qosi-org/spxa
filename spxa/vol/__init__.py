@@ -109,7 +109,11 @@ Entropic MOT
     :func:`mot_sinkhorn`: Sinkhorn iterations with a martingale constraint.
 Robust pricing
     :func:`robust_bounds`: forward-start bounds from a surface and the superhedge as trades.
+Multi-marginal MOT
+    :func:`mot_multi`: bounds for claims on several dates.
 """
+
+from spxa.vol.mot_multi import mot_multi
 
 from spxa.vol.robust import (
     StaticReplication,
@@ -450,4 +454,5 @@ __all__ = [
     "forward_start_straddle",
     "robust_bounds",
     "static_replication",
+    "mot_multi",
 ]
