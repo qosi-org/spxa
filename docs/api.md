@@ -182,6 +182,7 @@ the running library. All signatures are exact.
    - [Swaps & Bonds](#swaps-bonds)
    - [Curve Construction](#curve-construction)
    - [Turns, Meetings, Parametric Curves & Curve Sets](#turns-meetings-parametric-curves-curve-sets)
+   - [Curve Risk, Hedging & PCA](#curve-risk-hedging-pca)
 22. [Implied Volatility Surfaces (`spxa.vol`)](#implied-volatility-surfaces-spxavol)
    - [Coordinates & SVI Slices](#coordinates-svi-slices)
    - [SSVI & eSSVI](#ssvi-essvi)
@@ -5158,6 +5159,15 @@ Interest-rate instruments on real calendar dates, priced on separate discount an
 - `flat_forward_curve(reference_date, dates, rates)` (piecewise-flat forwards stepping on `dates`) and `meeting_date_curve(helpers, reference_date, step_dates, known=None, weights=None)` returning a `MeetingCurveResult` (exact or Gauss–Newton least squares).
 - `NelsonSiegelSvensson(beta0, beta1, beta2, beta3=0.0, tau1=1.0, tau2=None, reference_date=None)` (`zero`, `instantaneous_forward`, `params`, `is_svensson`) and `nelson_siegel(beta0, beta1, beta2, tau)`; `fit_nss_zero_rates(times, zero_rates, weights=None, svensson=True, tau_bounds=(0.05, 30.0))` (variable projection) and `fit_nss(helpers, reference_date, svensson=True, known=None, weights=None)`, both returning an `NSSFit`.
 - `CurveSet(curves, discount, projections=None, fixings=None)`: `discount_curve`, `projection(index)`, `projection_name`, `get`, `with_curve`, `bumped(shift, names=None)`, `pv(instrument, valuation_date=None)` and `CurveSet.from_fit(result, discount, projections)`.
+
+### Curve Risk, Hedging & PCA
+- A price function maps a dict of named curves to a value, e.g. `lambda c: swap.pv(c["discount"], c["EUR-6M"])`.
+- `node_deltas(pv, curves, names=None, bump=1e-7)` returns a `NodeRisk(nodes, deltas)` with `for_curve(name)`. `curve_nodes(curve)` and `with_node_values(curve, x)` read and replace the node values $x = -\log P$ of a piecewise curve, with turn spreads kept.
+- `quote_jacobian(helpers, curves, names=None, bump=1e-7)` and `quote_deltas(pv, result=None, *, helpers=None, curves=None, names=None, bump=1e-7, jacobian=None)`. The latter takes a `BootstrapResult` or `GlobalFitResult` and returns a `QuoteRisk(helpers, deltas)` with `per_bp`, `total` and `table()`.
+- `key_rate_hats(keys, t)`, `KeyRateShiftedCurve(base, keys, shifts)` and `key_rate_deltas(pv, curves, keys, names=None, bump=1e-4)`, which returns a `KeyRateRisk(keys, deltas)` with `per_bp` and `total`.
+- `hedge_notionals(target, hedges, weights=None)` and `par_hedge(pv, result, hedges)` return a `HedgeResult(notionals, residual)` with `residual_norm`.
+- `node_gamma(pv, curves, names=None, bump=1e-5)` and `pnl_explain(pv, before, after, names=None)`, which returns a `PnLExplain(full, first_order, second_order)` with `explained` and `unexplained`.
+- `curve_pca(rates, tenors, n_components=3, differences=True)` returns a `CurvePCA(tenors, components, variances, total_variance, mean)` with `explained_ratio`, `volatilities`, `scores`, `reconstruct`, `scenario(component, n_sd=1.0)`, `factor_deltas(key_deltas)` and `factor_variance(key_deltas)`.
 
 ## Implied Volatility Surfaces (`spxa.vol`)
 
