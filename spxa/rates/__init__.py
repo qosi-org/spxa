@@ -96,7 +96,11 @@ Hull-White simulation
     :func:`hull_white_paths`: exact joint simulation of the Hull-White state and bank account.
 Hull-White tree
     :class:`HullWhiteTree`: Hull-White (1994) trinomial tree fitted to the curve by forward induction.
+Hull-White PDE
+    :class:`HullWhitePDE`: Crank-Nicolson pricing in the Hull-White state on the spxa.pde solvers.
 """
+
+from spxa.rates.hw_pde import HullWhitePDE
 
 from spxa.rates.hw_tree import HullWhiteTree
 
@@ -420,4 +424,5 @@ __all__ = [
     "HullWhitePaths",
     "hull_white_paths",
     "HullWhiteTree",
+    "HullWhitePDE",
 ]
