@@ -31,6 +31,7 @@
 | Gaussian HJM | `GaussianHJM`, `exponential_vol`, `hump_vol`, `hjm_paths` |
 | Cheyette | `Cheyette`, `cheyette_paths`, `CheyettePDE`, `cheyette_swaption`, `swap_rate_dynamics`, `calibrate_cheyette` |
 | LIBOR market model | `LiborMarketModel`, `AbcdVol`, `exponential_correlation`, `rebonato_correlation`, `reduce_rank`, `lmm_paths`, `LMMPaths`, `calibrate_lmm`, `fit_abcd`, `LMMCalibration` |
+| Forward market model and SABR-LMM | `ForwardMarketModel`, `fmm_paths`, `FMMPaths`, `SABRLMM`, `sabr_lmm_paths` |
 
 ---
 
@@ -423,3 +424,23 @@ $$
 The swaption is then Black on the annuity. On the flat 3% curve, the abcd shape above with the Rebonato correlation gives a 2Y×5Y volatility of $17.84\%$, at an ATM swap rate of $3.02\%$. Its caplets carry between $18.3\%$ and $19.7\%$. With perfect correlation the swaption volatility would be $18.66\%$. Simulation agrees with the formula within Monte Carlo error (three standard errors plus 1%) at strikes of 2.5%, ATM and 4%.
 
 `calibrate_lmm` calibrates in two stages. `fit_abcd` fits the shape to the caplet volatilities, and the $k_i$ then make every caplet exact. The correlation parameters $(\beta, \rho_\infty)$ are fitted to swaption volatilities through Rebonato's formula, so no simulation is needed.
+
+### 11.4 Backward-looking rates
+
+Risk-free rates are compounded in arrears, so the coupon $R_i$ over $[T_i, T_{i+1}]$ is known only at $T_{i+1}$. Lyashenko and Mercurio's forward market model (`ForwardMarketModel`) keeps each rate diffusing through its accrual period, with a volatility that decays linearly to zero:
+
+$$
+dR_i = \sigma_i(t)\,g_i(t)\,(R_i + \delta)\,dW_i, \qquad g_i(t) = \min\Bigl(1, \frac{(T_{i+1} - t)^+}{T_{i+1} - T_i}\Bigr).
+$$
+
+Before $T_i$ it is the forward-looking LMM. A caplet on $R_i$ is a Black formula to $T_{i+1}$ with variance $\int_0^{T_{i+1}}\sigma_i^2 g_i^2\,dt$, which is $\sigma^2(T_i + \tau_i/3)$ for a flat volatility. A flat 20% on the 4Y×6M period therefore quotes as $19.25\%$ to the payment date. Even so, the backward-looking caplet is worth more than the forward-looking one, because its variance keeps growing through the accrual period. `fmm_paths` simulates under the spot measure of the compounded bank account. A rate stays in the drift sum until its accrual ends, and the deflator compounds the realised rates.
+
+### 11.5 SABR-LMM
+
+`SABRLMM` gives every forward a SABR smile through a CEV exponent and one stochastic volatility factor for the curve:
+
+$$
+dL_i = \alpha_i V_t (L_i + \delta)^\beta\,dW_i, \qquad dV_t = \nu V_t\,dZ_t, \qquad d\langle W_i, Z\rangle = \rho\,dt.
+$$
+
+Under its own measure each forward is SABR with parameters $(\alpha_i, \beta, \rho, \nu)$, up to a drift on $V$ from the change of measure. That drift is zero for the first forward. Caplets are therefore priced by Hagan's formula, and `sabr_lmm_paths` reproduces the smile within Monte Carlo error. The paths use Euler steps with absorption for the forwards and exact lognormal steps for $V$. Because the volatility factor is shared, swaptions inherit a consistent smile instead of being fitted one by one.

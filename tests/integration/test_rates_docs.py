@@ -555,3 +555,14 @@ class TestMarketModels:
         assert (round(min(caps), 1), round(max(caps), 1)) == (18.3, 19.7)
         flat = r.LiborMarketModel(CURVE, self.TIMES, self.VOL)
         assert round(flat.swaption_vol(2, 12) * 100, 2) == 18.66
+
+    def test_backward_looking_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        assert "quotes as $19.25\\%$ to the payment date" in text
+        flat = r.AbcdVol(0.0, 0.0, 1.0, 0.2)
+        fmm = r.ForwardMarketModel(CURVE, self.TIMES, flat)
+        lmm = r.LiborMarketModel(CURVE, self.TIMES, flat)
+        assert self.TIMES[6] == 4.0
+        assert fmm.caplet_variance(6) == pytest.approx(0.04 * (4.0 + 0.5 / 3), rel=1e-13)
+        assert round(fmm.caplet_vol(6) * 100, 2) == 19.25
+        assert fmm.caplet(6, 0.03) > lmm.caplet(6, 0.03)
