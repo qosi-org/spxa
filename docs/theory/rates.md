@@ -319,5 +319,5 @@ $$
 E^{T_p}[S_T] - S_0 = \frac{a A_0}{P(T_p)}\,S_0^2\,\bigl(e^{\sigma^2 T} - 1\bigr),
 $$
 
-which the replication reproduces to $10^{-8}$ relative. With the slope $a$ taken from the standard mapping, the adjustment for a 5-year fixing of a 10-year annual swap rate at $S_0 = 3\%$ and $\sigma = 20\%$ is $10.2$ bp. The standard mapping itself gives $10.8$ bp, and a SABR smile with fatter wings raises it further.
+which the replication reproduces to $10^{-8}$ relative. With the slope $a$ taken from the standard mapping, the adjustment for a 5-year fixing of a 10-year annual swap rate at $S_0 = 3\%$ and $\sigma = 20\%$ is $10.2$ bp. The standard mapping itself gives $10.8$ bp. The smile matters as well. The payoff is most convex at high rates, so raising the vols at high strikes (a larger $\nu$) raises the adjustment, while a downward skew ($\beta < 1$, $\rho < 0$) lowers it; `examples/rates_vol_example.py` shows the second case.
 
