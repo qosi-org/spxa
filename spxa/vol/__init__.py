@@ -42,6 +42,9 @@ Deltas
     :func:`black_delta` (forward/spot, premium-adjusted),
     :func:`strike_from_delta` and :func:`atm_dns_strike`, also as
     :meth:`VolSurface.delta` and :meth:`VolSurface.strike_from_delta`.
+Serialisation
+    :func:`to_dict`/:func:`from_dict` and :func:`dumps`/:func:`loads`:
+    bit-exact JSON round trips of surfaces, models, forwards and curves.
 Bumps
     :meth:`VolSurface.bumped` with :func:`parallel_bump`, :func:`skew_bump`
     and :func:`expiry_buckets`; :func:`bucketed_vega`.
@@ -93,6 +96,7 @@ from spxa.vol.bumps import (
     skew_bump,
 )
 from spxa.vol.delta import atm_dns_strike, black_delta, strike_from_delta
+from spxa.vol.serialization import dumps, from_dict, loads, to_dict
 from spxa.vol.fengler import (
     FenglerSmile,
     FenglerSurface,
@@ -208,4 +212,9 @@ __all__ = [
     "skew_bump",
     "expiry_buckets",
     "bucketed_vega",
+    # serialisation
+    "to_dict",
+    "from_dict",
+    "dumps",
+    "loads",
 ]
