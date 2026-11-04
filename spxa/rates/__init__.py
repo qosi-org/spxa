@@ -118,7 +118,11 @@ Short-rate model interface
     :class:`ShortRateModel`: the protocol shared by HW, G2++ and CIR++; :func:`model_implied_vols`.
 Gaussian HJM
     :class:`GaussianHJM`: multi-factor Gaussian HJM with closed-form bond options and caps.
+HJM Monte Carlo
+    :func:`hjm_paths`: martingale-exact simulation of deflated bonds under Gaussian HJM.
 """
+
+from spxa.rates.hjm_mc import HJMPaths, hjm_paths
 
 from spxa.rates.hjm import GaussianHJM, exponential_vol, hump_vol
 
@@ -490,4 +494,6 @@ __all__ = [
     "GaussianHJM",
     "exponential_vol",
     "hump_vol",
+    "HJMPaths",
+    "hjm_paths",
 ]
