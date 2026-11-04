@@ -175,7 +175,7 @@ the running library. All signatures are exact.
    - [Curves & Equity Forwards](#curves-equity-forwards)
    - [Option Formulas & Implied Volatility](#option-formulas-implied-volatility)
    - [Quotes, Arbitrage, Parity & Carry](#quotes-arbitrage-parity-carry)
-21. [Interest Rates (`spxa.rates`)](#interest-rates-spxarates)
+21. [Interest Rates (`spxa.rates`, `spxa.graph.rates`)](#interest-rates-spxarates-spxagraphrates)
    - [Indices & Overnight Compounding](#indices-overnight-compounding)
    - [Cashflows, Legs & Pricing](#cashflows-legs-pricing)
    - [Money Market & Futures](#money-market-futures)
@@ -183,6 +183,13 @@ the running library. All signatures are exact.
    - [Curve Construction](#curve-construction)
    - [Turns, Meetings, Parametric Curves & Curve Sets](#turns-meetings-parametric-curves-curve-sets)
    - [Curve Risk, Hedging & PCA](#curve-risk-hedging-pca)
+   - [Caps, Floors, Swaptions & SABR](#caps-floors-swaptions-sabr)
+   - [Short-Rate Models](#short-rate-models)
+   - [HJM & Cheyette](#hjm-cheyette)
+   - [LIBOR & Forward Market Models](#libor-forward-market-models)
+   - [Bermudan Swaptions & Least Squares](#bermudan-swaptions-least-squares)
+   - [Inflation](#inflation)
+   - [Risk Adapter, Graph Nodes & Extension Points](#risk-adapter-graph-nodes-extension-points)
 22. [Implied Volatility Surfaces (`spxa.vol`)](#implied-volatility-surfaces-spxavol)
    - [Coordinates & SVI Slices](#coordinates-svi-slices)
    - [SSVI & eSSVI](#ssvi-essvi)
@@ -5117,9 +5124,9 @@ Dates, accrual conventions, calendars, schedules, curves, option formulas, impli
 - `implied_carry(spot, forward, T)`, `implied_dividend_yield(spot, forward, T, repo_discount)` and `implied_repo_rate(spot, forward, T, dividend_yield=0.0)`.
 - `ImpliedForwardCurve(spot, times, forwards, discounts=None)`: `forward(t)`, `carry(t)`, `discount_curve()`, `dividend_curve()`, `dividend_yield(t)` and `to_equity_forward()`; constructors `from_parity_fits(spot, times, fits)` and `from_surface(surface, spot=None, **kw)`.
 
-## Interest Rates (`spxa.rates`)
+## Interest Rates (`spxa.rates`, `spxa.graph.rates`)
 
-Interest-rate instruments on real calendar dates, priced on separate discount and projection curves (any `spxa.market.YieldCurve`). The theory is in [Interest rates](theory/rates.md).
+This section covers interest-rate instruments on real calendar dates, priced on separate discount and projection curves (any `spxa.market.YieldCurve`). It also covers volatility products and SABR, short-rate, HJM, Cheyette and market models, Bermudan swaptions and inflation. The theory is in [Interest rates](theory/rates.md).
 
 ### Indices & Overnight Compounding
 - `OvernightIndex(name, currency, day_count="ACT/360", calendar="WEEKENDS", publication_lag=1)` with `fixing_dates(start, end)`, `next_fixing_date(d)` and `accrual(d)`; `IborIndex(name, currency, tenor, day_count="ACT/360", calendar="TARGET", fixing_days=2, convention="MF", end_of_month=True)` with `value_date`, `fixing_date`, `maturity_date` and `accrual`. Presets `SOFR`, `ESTR`, `SONIA`, `EURIBOR1M`, `EURIBOR3M`, `EURIBOR6M`, `EURIBOR12M`; `get_index(name)` and `available_indices()`.
@@ -5168,6 +5175,87 @@ Interest-rate instruments on real calendar dates, priced on separate discount an
 - `hedge_notionals(target, hedges, weights=None)` and `par_hedge(pv, result, hedges)` return a `HedgeResult(notionals, residual)` with `residual_norm`.
 - `node_gamma(pv, curves, names=None, bump=1e-5)` and `pnl_explain(pv, before, after, names=None)`, which returns a `PnLExplain(full, first_order, second_order)` with `explained` and `unexplained`.
 - `curve_pca(rates, tenors, n_components=3, differences=True)` returns a `CurvePCA(tenors, components, variances, total_variance, mean)` with `explained_ratio`, `volatilities`, `scores`, `reconstruct`, `scenario(component, n_sd=1.0)`, `factor_deltas(key_deltas)` and `factor_variance(key_deltas)`.
+
+### Caps, Floors, Swaptions & SABR
+- `Caplet(coupon, strike, kind="cap"|"floor")` on one `IborCoupon`: `expiry(discount)`, `forward(projection)`, `weight(discount)` ($N\tau P(t_p)$) and `price(discount, projection, vol, model="black"|"normal"|"shifted_black", shift=0.0)`. `CapFloor(caplets, strike, kind="cap")` with `maturity`, `price(...)`, `caplet_prices(...)`, `annuity(discount)`, `atm_strike(discount, projection=None)`, `with_strike(strike, kind=None)` and `implied_flat_vol(price, discount, ...)`. `cap_floor(trade_date, tenor, strike, index=EURIBOR6M, notional=1.0, kind="cap", skip_first=True, forward_start=None, use_index_dates=True)` builds the strip.
+- `Swaption(swap, expiry, settlement="physical"|"cash")` with `strike`, `is_payer`, `notional`, `time_to_expiry(discount)`, `forward_rate(discount, projection=None)`, `frequency()`, `annuity(discount, projection=None)`, `price(discount, projection=None, vol=0.2, model="black"|"normal"|"shifted_black", shift=0.0)` and `implied_vol(price, ...)`. `swaption(trade_date, expiry, tenor, strike, index=EURIBOR6M, payer=True, notional=1.0, settlement="physical", fixed_tenor="1Y", ...)` builds one; `cash_annuity(S, n, m, notional=1.0)` is the par-yield annuity.
+- `SABR(alpha, beta, rho, nu, shift=0.0)` with `lognormal_vol(F, K, T, method="hagan"|"obloj")`, `normal_vol(F, K, T)` and `price(F, K, T, df=1.0, option="call", vol="lognormal"|"normal")`. Functional forms `sabr_lognormal_vol(F, K, T, alpha, beta, rho, nu, shift=0.0, method="hagan")`, `sabr_normal_vol(...)` and `z_over_chi(z, rho)`. `alpha_from_atm(atm_vol, F, T, beta, rho, nu, shift=0.0)`; `calibrate_sabr(F, strikes, vols, T, beta, shift=0.0, vol_type="lognormal", method="hagan", weights=None, atm_vol=None)` returns a `SABRFit(model, errors, rmse)`.
+- `ArbitrageFreeSABR(model, F, T, n=400, n_steps=100, n_sd=4.0)`: the Hagan et al. (2014) density PDE. `.solve()` returns a `SABRDensity` with `mass()`, `mean()`, `call(K)`, `put(K)`, `implied_vol(K, vol="lognormal")` and the absorbed masses `P_L`, `P_R`. `sabr_paths(model, F0, T, n_steps, n_paths, seed=0, bridge=True)` returns `SABRPaths` with `call(K)` and `put(K)` (absorption at $-$shift).
+- `strip_caplet_vols(caps, flat_vols, discount, projection=None, model="black", shift=0.0, bounds=(1e-6, 5.0))` bootstraps a piecewise-constant `CapletVolCurve(expiries, vols)`.
+- `SwaptionCube(expiries, tenors, models)` with `sabr(expiry, tenor)` (interpolated parameters), `vol(expiry, tenor, K, F, vol_type="lognormal")` and `SwaptionCube.calibrate(expiries, tenors, forwards, strikes, vols, beta, shift=0.0, vol_type="lognormal")`.
+- `CMSReplication(S0, T, annuity, discount_pay, price, n, m=1, delta=0.0, mapping="standard"|"linear", slope=None, lower=0.0, upper=None)`: static replication on swaption prices, with `alpha(S)`, `expectation(f)`, `coupon()`, `convexity_adjustment()`, `caplet(K)` and `floorlet(K)`.
+
+### Short-Rate Models
+- `ShortRateModel` is the protocol shared by the models below: `zcb_option(T, S, K, option="call")`, `caplet(caplet, projection=None)`, `cap(cap, projection=None)` and `swaption(swaption, projection=None)`. The projection basis is a deterministic spread.
+- `HullWhite(curve, a, sigma, sigma_times=None)` (piecewise-constant `sigma` on `sigma_times`): `B(t, T)`, `y(t)`, `phi(t)`, `mean_x(t)`, `forward_mean(t, T)`, `integrated_variance(t)`, `discount_bond(t, T, x)`, `short_rate(t, x)`, `bond_option_vol(T, S)`, `with_sigma(...)` and `swaption(..., method="jamshidian"|"integral")`.
+- Hull–White engines:
+  - `hull_white_paths(model, times, n_paths, seed=0, antithetic=True)` returns exact `HullWhitePaths` with `at(t)`, `short_rate(t)`, `zero_bond(t, T)` and `price(payoff, t)`. `hull_white_transition(model, t0, t1, x, rng)` is one exact step.
+  - `HullWhiteTree(model, horizon, n_steps)`: a trinomial tree fitted to the curve, with `node_rates(alpha, x)`.
+  - `HullWhitePDE(model, n_space=201, n_time=200, n_sd=7.0)`: `solve(payoff, T, exercise=None, american=None, lcp="brennan_schwartz")`, `value(...)`, `zero_bond(T)`, `zcb_option(T, S, K, option="call", american=False)` and `swaption(swaption)`.
+- Calibration:
+  - `calibrate_hull_white(curve, instruments, targets, projection=None, a=0.03, mode="bootstrap"|"global", sigma_times=None, sigma_bounds=(1e-6, 0.2))` returns a `HullWhiteCalibration(model, prices, targets)` with `errors` and `max_relative_error`.
+  - `market_prices(instruments, vols, discount, projection=None, model="black", shift=0.0)` and `model_price(model, inst, projection=None)` price the inputs.
+  - `model_implied_vols(model, instruments, projection=None, quote="black", shift=0.0)` inverts model prices back to vols.
+- `G2PP(curve, a, sigma, b, eta, rho)`: `V(t, T)`, `covariance(t)`, `forward_mean(t, T)`, `phi(t)`, `discount_bond(t, T, x, y)`, `bond_option_vol(T, S)`, `option_on_cashflows(T, times, amounts, const=0.0, n_quad=None)` and swaptions by one-dimensional quadrature. `g2pp_paths(model, times, n_paths, seed=0, antithetic=True)` returns `G2PPPaths` with `zero_bond` and `price`. `calibrate_g2pp(curve, instruments, targets, projection=None, initial=(0.5, 0.01, 0.05, 0.008, -0.5), n_quad=24)` returns a `G2PPCalibration`. `HullWhite2F(a_bar, sigma1, b_bar, sigma2, rho_bar)` converts with `to_g2pp(curve)` and `from_g2pp(model)`.
+- `BlackKarasinski(curve, a, sigma)` with `tree(horizon, n_steps)`, which returns a `BlackKarasinskiTree` fitted to the curve. `black_karasinski_paths(tree, n_paths, seed=0, antithetic=True)` samples the tree and returns `BlackKarasinskiPaths` with `short_rate(m)`, `zero_bond(m, maturity)` and `price(payoff, m)`.
+- `CIRPlusPlus(curve, kappa, theta, sigma, x0)`: provides `feller`, `cir_forward(t)`, `phi(t)`, `Phi(t, T)`, `discount_bond(t, T, x)` and `forward_measure_law(T)` (scaled noncentral $\chi^2$). Options are noncentral chi-square closed forms, and swaptions use Jamshidian's decomposition.
+
+### HJM & Cheyette
+- `GaussianHJM(curve, vols, n_quad=48, breakpoints=())` with factor volatilities `vols[i](t, T)` such as `exponential_vol(sigma, a)` and `hump_vol(alpha, beta, gamma)`. Methods: `sigma(t, T)`, `Sigma(t, T)`, `drift(t, T)`, `forward_bond_variance(T, s, e)`, closed-form `zcb_option`, `caplet` and `cap`, and `GaussianHJM.from_hull_white(model, n_quad=48)`.
+- `hjm_paths(model, maturities, n_paths, record=None, keep=None, seed=0, antithetic=True)` returns `HJMPaths` with `deflated(t, T)`, `deflator(t)`, `zero_bond(t, T)` and `price(payoff, t)`.
+- `Cheyette(curve, kappa, sigma, beta=0.0, sigma_times=None)`: the local volatility is $\max(\sigma(t) + \beta x, 0)$. Methods: `sigma_at(t)`, `local_vol(t, x)`, `G(t, T)`, `discount_bond(t, T, x, y)`, `short_rate(t, x)`, `ybar(t)` and `to_hull_white()` (when `beta = 0`).
+- Cheyette engines:
+  - `cheyette_paths(model, horizon, n_steps, n_paths, record=None, seed=0, antithetic=True)` returns `CheyettePaths` with `zero_bond` and `price`.
+  - `CheyettePDE(model, n_x=161, n_y=41, n_time=200, n_sd=6.0)` provides `solve(payoff, T, exercise=None)`, `zero_bond(T)` and `swaption(swaption)`.
+  - `swap_rate_dynamics(model, swaption, projection=None, n_time=128)` returns a `DisplacedSwapRate(S0, annuity, expiry, lam, skew)` with `price(K, payer=True)`; `cheyette_swaption(...)` is the resulting approximate price.
+- `calibrate_cheyette(curve, swaptions, targets, projection=None, kappa=0.03, initial=(0.01, 0.0), beta_bounds=(-2.0, 5.0))` returns a `CheyetteCalibration` with `max_relative_error`.
+
+### LIBOR & Forward Market Models
+- `AbcdVol(a, b, c, d)` gives $(a + b\tau)e^{-c\tau} + d$, with the closed-form `covariance(Ti, Tj, t0, t1)`. Correlations: `exponential_correlation(times, beta)`, `rebonato_correlation(times, beta, rho_inf)` and `reduce_rank(rho, n_factors)`.
+- `LiborMarketModel(curve, times, vol, k=None, correlation=None, shift=0.0)`: displaced lognormal forwards. Methods: `sigma(t)`, `covariance(t0, t1)`, `caplet_variance(i)`, `caplet_vol(i)`, `caplet(i, K, notional=1.0, option="call")`, `swap_weights(alpha, beta)`, and `swaption_vol(alpha, beta)` and `swaption(alpha, beta, K, payer=True, notional=1.0)` by Rebonato's formula.
+- `lmm_paths(model, n_paths, steps_per_period=4, seed=None, antithetic=True, predictor_corrector=True)` simulates under the spot measure. It returns `LMMPaths` with `fixings`, `deflator(k)`, `bond(k, e)` and `price(values, k)`.
+- `fit_abcd(times, caplet_vols, initial=(0.05, 0.1, 0.5, 0.1))`. `calibrate_lmm(curve, times, caplet_vols, swaptions, swaption_vols, shift=0.0, initial_correlation=(0.1, 0.5))` reprices caplets exactly and fits the correlation to swaptions. It returns an `LMMCalibration` with `max_swaption_error`.
+- `ForwardMarketModel(curve, times, vol, k=None, correlation=None, shift=0.0)`: backward-looking compounded rates (Lyashenko–Mercurio) whose volatility decays over the accrual period. It has `decay(t)`, `sigma(t)`, `covariance(t0, t1)`, `caplet_variance(i)`, `caplet_vol(i)` and `caplet(...)`. `fmm_paths(model, n_paths, steps_per_period=4, seed=None, antithetic=True)` returns `FMMPaths` with `fixings`, `deflator(k)` and `price(values, k)`.
+- `SABRLMM(curve, times, alphas, beta, rho, nu, correlation=None, shift=0.0)` with `sabr(i)` and `caplet(...)`. `sabr_lmm_paths(model, n_paths, steps_per_period=8, seed=None, antithetic=True)` returns `LMMPaths`.
+
+### Bermudan Swaptions & Least Squares
+- `BermudanSwaption(exercise_times, underlyings)`: payer-signed `ModelCashflows(times, amounts)` (`pv(discount)`, `value(model, t, x)`) for each exercise. It has `n_exercise`, `maturity`, `underlying_value(k, model, x)`, `exercise_value(k, model, x)`, `restrict(ks)` and `underlying_pv(k, discount)`.
+  - Built by `bermudan_swaption(swap, discount, projection=None, lockout=1)` (co-terminal) or `bermudan_from_times(exercise_times, end, fixed_rate, notional=1.0, payer=True, frequency=1)`.
+  - `coterminal_swaptions(swap, discount, lockout=1)` lists the European components.
+  - `swap_cashflows(swap, discount, projection=None)` and `coupon_cashflows(fixed, floating, sign, discount, projection=None)` convert legs into model cashflows.
+- Lattice engines: `bermudan_pde(engine, bermudan)` (a `HullWhitePDE` or `CheyettePDE`) and `bermudan_tree(tree, bermudan)` (a `HullWhiteTree`).
+- Least squares:
+  - `ExerciseProblem(times, x0, step, exercise_value, basis)`, built by `hull_white_exercise_problem(model, bermudan)` or `cheyette_exercise_problem(model, bermudan, steps_per_year=50)`.
+  - `lsm(problem, n_paths, seed=0, n_train=None)` fits an `LSMPolicy` (`continuation`, `exercise`, `value_from`) on training paths and values it on independent paths, which gives a lower bound.
+  - `andersen_broadie(result, n_outer=1000, n_inner=500, seed=0)` returns a `DualBound(upper, stderr, lower, lower_stderr)` with `gap` and `midpoint`.
+
+### Inflation
+- `CPIFixings(name, levels)` keyed by reference month: `from_pairs(name, pairs)`, `from_series(name, first_month, values)`, `add`, `get` and `last_month`. `month_start(d)`.
+- `InflationIndex(name, fixings, lag=3, interpolated=True, digits=None)` with `reference_months(d)`, `reference_cpi(d)` (TIPS daily interpolation, optional rounding), `index_ratio(d, base_date)` and `is_fixed(d)`.
+- `Seasonality(factors)`: twelve multiplicative log factors. It has `adjustment(month, base_month)` and `Seasonality.estimate(fixings, years=None)`, which estimates them from the history (demeaned average log change by calendar month).
+- `bootstrap_inflation_curve(index, start, quotes, seasonality=None)` fits the zero-coupon swap rates `{years: rate}` exactly. It returns an `InflationCurve(index, base_month, pillar_months, pillar_levels, seasonality=None)` with `fixing(month)`, `reference_cpi(d)`, `zero_coupon_rate(start, maturity, years=None)` and `real_curve(nominal, today, years=30)`.
+- `ZeroCouponInflationSwap(start, years, fixed_rate, notional=1.0)` has `maturity`, `inflation_leg(nominal, curve)`, `fixed_leg(nominal)`, `present_value(nominal, curve)` and `fair_rate(curve)`. `YearOnYearInflationSwap(start, years, fixed_rate, notional=1.0, months=12, day_count="30/360")` has `schedule()`, `inflation_leg(nominal, curve, model=None)`, `annuity(nominal)`, `present_value(...)` and `fair_rate(...)`; passing a Jarrow–Yildirim `model` adds the convexity.
+- `InflationLinkedBond(coupon, maturity, dated_date, index, frequency=2, face=100.0, deflation_floor=True, base_cpi=None)`, with Treasury's TIPS formulas:
+  - `base`, `coupon_dates()` and `accrued(settlement)`;
+  - `real_price(settlement, real_yield)` and `real_yield(settlement, real_price)`;
+  - `settlement_amount(settlement, real_yield, digits=6)`;
+  - `present_value(nominal, inflation, today, model=None)`, a dict of coupons, principal, floor and total, with the deflation floor valued under `model`;
+  - `breakeven_inflation(nominal_yield, real_yield)`.
+- `JarrowYildirim(nominal, real, cpi0, a_n, sigma_n, a_r, sigma_r, sigma_i, rho_nr=0.0, rho_ni=0.0, rho_ri=0.0)`: nominal and real Hull–White rates with a lognormal index. Methods: `forward_index(T)`, `zero_coupon_swap_rate(T)`, `yoy_convexity(T1, T2)`, `yoy_forward(T1, T2)`, `yoy_swaplet(T1, T2)`, `yoy_swap_rate(times)`, `log_ratio_variance(T1, T2)`, `zero_coupon_caplet(T, strike, option="call")` and `yoy_caplet(T1, T2, strike, option="call")`.
+- `jy_paths(model, T, n_steps, n_paths, record=(), seed=None)` returns `JYPaths(times, discount, index, nominal_rate, real_rate)` with `column(t)`. The curve parts are integrated exactly, so seasonal real curves are repriced.
+- `calibrate_jarrow_yildirim(model, quotes, parameters=("sigma_i", "sigma_r"), starts=(1/3, 1.0, 3.0))` fits `InflationOptionQuote(start, end, strike, price, option="call", kind="yoy"|"zc")` prices with a multi-start search. It returns a `JYFit(model, parameters, rmse, success)`.
+
+### Risk Adapter, Graph Nodes & Extension Points
+- `curve_price(instrument, market, base=None)` values an `spxa.risk.instruments.InterestRateSwap` on `market["<rate id>_CURVE"]`, or on a flat curve at `market["r"]`. Against `base`, the change in `r` is a parallel zero-rate shift. It returns a `CurveQuote(instrument_id, price, dv01, par_rate, annuity)` with the exact parallel DV01. `curve_pricing_fn(book, base_market=None)` returns a `market -> value` callable for `StressTestingEngine`.
+- `spxa.graph.rates`:
+  - `discounted_cashflows_node(zero_rates, pillars, times, amounts)` and `par_swap_rate_node(zero_rates, pillars, maturity, frequency=0.5)` take zero-rate input nodes, interpolated linearly in zero rate.
+  - Their analytic vector–Jacobian products give all key-rate sensitivities in one `GradientTape` pass.
+  - `zero_curve_weights(pillars, times)` returns the interpolation weights.
+- Extension points:
+  - `InterpolationScheme` (`fit(times, logp)` returns a `FittedInterpolation` with `evaluate(t)`), with `hyman_slopes(x, y)` and `discrete_forwards(times, logp)`.
+  - `CurveHelper` (`pillar`, `curves`, `implied_quote`, `residual`) and `last_curve_date(leg)`.
+  - `nss_loadings(t, tau1, tau2=None, forward=False)`.
+  - Typing aliases: `Cashflow`, `Leg` and `NotionalLike`; `CashflowRow` is a row of `cashflow_table`.
 
 ## Implied Volatility Surfaces (`spxa.vol`)
 
