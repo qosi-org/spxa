@@ -49,6 +49,10 @@ Bootstrapping
 Scheme diagnostics
     :func:`compare_schemes` (:class:`SchemeDiagnostics`),
     :func:`bump_locality` and :func:`forward_roughness`.
+Curve risk
+    :func:`node_deltas` (:class:`NodeRisk`), :func:`quote_deltas`
+    (:class:`QuoteRisk`), :func:`quote_jacobian`, :func:`curve_nodes` and
+    :func:`with_node_values`.
 Curve sets
     :class:`CurveSet`: named curves with a discount role and index
     projections; prices swaps and basis swaps by leg index.
@@ -154,6 +158,15 @@ from spxa.rates.diagnostics import (
     bump_locality,
     compare_schemes,
     forward_roughness,
+)
+from spxa.rates.risk import (
+    NodeRisk,
+    QuoteRisk,
+    curve_nodes,
+    node_deltas,
+    quote_deltas,
+    quote_jacobian,
+    with_node_values,
 )
 from spxa.rates.swaps import (
     BasisSwap,
@@ -288,4 +301,12 @@ __all__ = [
     "SchemeDiagnostics",
     "bump_locality",
     "forward_roughness",
+    # curve risk
+    "NodeRisk",
+    "QuoteRisk",
+    "curve_nodes",
+    "with_node_values",
+    "node_deltas",
+    "quote_jacobian",
+    "quote_deltas",
 ]
