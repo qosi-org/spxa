@@ -152,7 +152,11 @@ Inflation
     :class:`InflationIndex` (lagged, interpolated reference CPI and index ratios) on :class:`CPIFixings`.
     :func:`bootstrap_inflation_curve` builds an :class:`InflationCurve` of forward fixings from
     zero-coupon inflation swaps, with :class:`Seasonality` and a real discount curve.
+Inflation models
+    :class:`JarrowYildirim`: nominal and real Hull–White with a lognormal index; YoY convexity.
 """
+
+from spxa.rates.jarrow_yildirim import JarrowYildirim
 
 from spxa.rates.inflation import (
     CPIFixings,
@@ -642,4 +646,5 @@ __all__ = [
     "CPIFixings",
     "InflationIndex",
     "month_start",
+    "JarrowYildirim",
 ]
