@@ -116,7 +116,11 @@ CIR++
     :class:`CIRPlusPlus`: shifted CIR fitted to a curve, with bond options and caps in closed form.
 Short-rate model interface
     :class:`ShortRateModel`: the protocol shared by HW, G2++ and CIR++; :func:`model_implied_vols`.
+Gaussian HJM
+    :class:`GaussianHJM`: multi-factor Gaussian HJM with closed-form bond options and caps.
 """
+
+from spxa.rates.hjm import GaussianHJM, exponential_vol, hump_vol
 
 from spxa.rates.short_rate import ShortRateModel, model_implied_vols
 
@@ -483,4 +487,7 @@ __all__ = [
     "CIRPlusPlus",
     "ShortRateModel",
     "model_implied_vols",
+    "GaussianHJM",
+    "exponential_vol",
+    "hump_vol",
 ]
