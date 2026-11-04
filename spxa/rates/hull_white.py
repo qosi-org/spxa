@@ -130,3 +130,107 @@ class HullWhite:
         else:
             raise ValueError("option must be 'call' or 'put'")
         return float(out) if out.ndim == 0 else out
+
+    # -- caps and swaptions -----------------------------------------------
+    def caplet(self, caplet: Any, projection: Optional[YieldCurve] = None) -> float:
+        r"""Caplet or floorlet (a :class:`~spxa.rates.capfloor.Caplet`).
+
+        With fixing time :math:`t_f` and period :math:`[s, e]`, the ratio
+        :math:`Q = P(t_f, s)/P(t_f, e)` is lognormal under the
+        :math:`e`-forward measure with log-variance
+        :math:`(B(t_f, e) - B(t_f, s))^2 y(t_f)`. The coupon pays
+        :math:`N\tau(L - K)^+ = N(Q - K^*)^+` with
+        :math:`K^* = 1 + \tau(K - b)`, where the deterministic basis
+        :math:`b` reconciles the discount-curve forward with the projection
+        forward. The payment-date ratio :math:`P(\cdot, p)/P(\cdot, e)` is
+        frozen at today's value.
+        """
+        from spxa.market.black import black_price
+
+        c = caplet.coupon
+        proj = projection if projection is not None else self.curve
+        crv = self.curve
+        tf = float(crv.time(c.fixing))
+        s, e, p = (float(crv.time(d)) for d in (c.start, c.end, c.payment_date))
+        tau = c.accrual
+        Q0 = float(crv.discount(s) / crv.discount(e))
+        b = caplet.forward(proj) - (Q0 - 1.0) / tau
+        Kstar = 1.0 + tau * (caplet.strike - b)
+        v = float(abs(self.B(tf, e) - self.B(tf, s)) * np.sqrt(self.y(tf))) if tf > 0 else 0.0
+        option = "call" if caplet.kind == "cap" else "put"
+        if Kstar <= 0:
+            und = max(Q0 - Kstar, 0.0) if option == "call" else 0.0
+        elif v == 0.0:
+            und = max(Q0 - Kstar, 0.0) if option == "call" else max(Kstar - Q0, 0.0)
+        else:
+            und = float(black_price(Q0, Kstar, 1.0, v, 1.0, option))
+        return float(c.notional * crv.discount(p) * und)
+
+    def cap(self, cap: Any, projection: Optional[YieldCurve] = None) -> float:
+        """Cap or floor (a :class:`~spxa.rates.capfloor.CapFloor`): the sum of its optionlets."""
+        return float(sum(self.caplet(c, projection) for c in cap.caplets))
+
+    def swaption(
+        self, swaption: Any, projection: Optional[YieldCurve] = None, method: str = "jamshidian"
+    ) -> float:
+        r"""European swaption (a physically settled :class:`~spxa.rates.swaptions.Swaption`).
+
+        At expiry :math:`T` the swap is worth :math:`V(x) = \sum_i a_i P(T, t_i | x)`
+        (:func:`~spxa.rates.model_cashflows.swap_cashflows`), and under the
+        :math:`T`-forward measure :math:`x_T \sim N(0, y(T))`. If the
+        amounts change sign once, :math:`V` is monotone in :math:`x`, and
+        Jamshidian's decomposition writes :math:`V^+` as a portfolio of
+        zero-coupon bond options struck at :math:`P(T, t_i | x^*)`, where
+        :math:`V(x^*) = 0`. ``method='integral'`` integrates
+        :math:`V^+` against the Gaussian instead (and is used automatically
+        when the sign condition fails).
+        """
+        from scipy.integrate import quad
+        from scipy.optimize import brentq
+
+        from spxa.rates.model_cashflows import swap_cashflows
+
+        if getattr(swaption, "settlement", "physical") != "physical":
+            raise ValueError("only physical settlement is supported")
+        crv = self.curve
+        T = float(crv.time(swaption.expiry))
+        cf = swap_cashflows(swaption.swap, crv, projection)
+        if T <= 0:
+            return max(cf.pv(crv), 0.0)
+        live = cf.times > T + 1e-12
+        times, amounts = cf.times[live], cf.amounts[live]
+        const = float(cf.amounts[~live].sum())  # flows at T: P(T, T) = 1
+        sd = np.sqrt(self.y(T))
+        pT = float(crv.discount(T))
+
+        def V(x: float) -> float:
+            return const + float(np.dot(amounts, self.discount_bond(T, times, x)))
+
+        lo, hi = -12 * sd, 12 * sd
+        root = brentq(V, lo, hi, xtol=1e-16, rtol=1e-15, maxiter=200) if V(lo) * V(hi) < 0 else None
+        one_sign = (
+            amounts.size > 1
+            and (np.all(amounts[1:] < 0) or np.all(amounts[1:] > 0))
+            and np.sign(amounts[0]) != np.sign(amounts[1])
+        )
+        if method == "jamshidian" and root is not None and one_sign and const == 0.0:
+            K = self.discount_bond(T, times, root)
+            increasing = V(root + sd) > 0
+            total = 0.0
+            for t_i, a_i, k_i in zip(times, amounts, K):
+                if increasing:
+                    total -= a_i * self.zcb_option(T, t_i, k_i, "put")
+                else:
+                    total += a_i * self.zcb_option(T, t_i, k_i, "call")
+            return float(total)
+        if method not in ("jamshidian", "integral"):
+            raise ValueError("method must be 'jamshidian' or 'integral'")
+
+        def f(x: float) -> float:
+            return max(V(x), 0.0) * np.exp(-0.5 * (x / sd) ** 2) / (sd * np.sqrt(2 * np.pi))
+
+        pts = [lo, root, hi] if root is not None else [lo, hi]
+        val = sum(
+            quad(f, a, b, epsabs=0.0, epsrel=1e-12, limit=200)[0] for a, b in zip(pts[:-1], pts[1:])
+        )
+        return float(pT * val)

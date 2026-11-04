@@ -94,3 +94,55 @@ def test_validation() -> None:
     assert HW_PW.with_sigma([0.02, 0.02, 0.02]).y(2.0) == pytest.approx(
         HullWhite(CURVE, 0.08, 0.02).y(2.0), rel=1e-14
     )
+
+
+class TestCapsAndSwaptions:
+    def test_caplets_match_integration(self) -> None:
+        from spxa.rates.capfloor import cap_floor
+        from spxa.rates.indices import EURIBOR6M
+        from tests.unit.rates.test_capfloor import PROJ
+
+        model = HullWhite(CURVE, 0.05, 0.012)
+        cap = cap_floor("2024-03-15", "5Y", 0.04, EURIBOR6M, notional=1e6)
+        floor = cap_floor("2024-03-15", "5Y", 0.04, EURIBOR6M, notional=1e6, kind="floor")
+        for cl in cap.caplets[::3]:
+            c = cl.coupon
+            tf, s, e = (float(CURVE.time(d)) for d in (cl.coupon.fixing, c.start, c.end))
+            Q0 = CURVE.discount(s) / CURVE.discount(e)
+            Kstar = 1 + c.accrual * (cl.strike - (cl.forward(PROJ) - (Q0 - 1) / c.accrual))
+
+            def payoff(x: float, tf=tf, s=s, e=e, Kstar=Kstar) -> float:  # type: ignore[no-untyped-def]
+                Q = model.discount_bond(tf, s, x) / model.discount_bond(tf, e, x)
+                return max(Q - Kstar, 0.0)
+
+            num = _expect(model, tf, e, payoff) * c.notional * CURVE.discount(c.payment_date)
+            assert model.caplet(cl, PROJ) == pytest.approx(num, rel=1e-8)
+        # cap - floor = sum of forward-starting FRAs
+        fras = sum(c.weight(CURVE) * (c.forward(PROJ) - 0.04) for c in cap.caplets)
+        assert model.cap(cap, PROJ) - model.cap(floor, PROJ) == pytest.approx(fras, rel=1e-12)
+
+    def test_jamshidian_matches_integration_and_parity(self) -> None:
+        from spxa.rates.swaptions import swaption
+        from tests.unit.rates.test_capfloor import PROJ
+
+        for model in (HW, HW_PW):
+            for K in (0.03, 0.035, 0.045):
+                pay = swaption("2024-03-15", "2Y", "5Y", K, notional=1e6)
+                rec = swaption("2024-03-15", "2Y", "5Y", K, notional=1e6, payer=False)
+                j = model.swaption(pay, PROJ)
+                assert j == pytest.approx(model.swaption(pay, PROJ, "integral"), rel=1e-9)
+                r = model.swaption(rec, PROJ)
+                assert r == pytest.approx(model.swaption(rec, PROJ, "integral"), rel=1e-9)
+                assert j - r == pytest.approx(pay.swap.pv(CURVE, PROJ), abs=1e-7)
+
+    def test_small_vol_limit_is_intrinsic(self) -> None:
+        from spxa.rates.swaptions import swaption
+        from tests.unit.rates.test_capfloor import PROJ
+
+        tiny = HullWhite(CURVE, 0.05, 1e-7)
+        pay = swaption("2024-03-15", "1Y", "5Y", 0.03, notional=1e6)
+        assert tiny.swaption(pay, PROJ) == pytest.approx(
+            max(pay.swap.pv(CURVE, PROJ), 0.0), rel=1e-5
+        )
+        with pytest.raises(ValueError):
+            HW.swaption(pay, PROJ, method="tree")
