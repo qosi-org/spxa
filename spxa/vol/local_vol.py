@@ -128,6 +128,36 @@ class LocalVolSurface:
 
         return DupirePDE(r, self, q)
 
+    def american(
+        self,
+        K: float,
+        T: float,
+        spot: float,
+        r: float,
+        q: float = 0.0,
+        option: str = "put",
+        **kwargs: Any,
+    ) -> Any:
+        """American option under this local volatility (:meth:`BlackScholesPDE.american`)."""
+        return self.black_scholes_pde(r, q).american(K, T, spot, option, **kwargs)
+
+    def barrier(
+        self,
+        K: float,
+        T: float,
+        spot: float,
+        barrier: float,
+        r: float,
+        q: float = 0.0,
+        barrier_type: str = "down-and-out",
+        option: str = "call",
+        **kwargs: Any,
+    ) -> Any:
+        """Continuously monitored barrier option under this local volatility."""
+        return self.black_scholes_pde(r, q).barrier(
+            K, T, spot, barrier, barrier_type, option, **kwargs
+        )
+
     def black_scholes_pde(self, r: float, q: float = 0.0) -> Any:
         """:class:`spxa.pde.BlackScholesPDE` with this local volatility (backward pricing)."""
         from spxa.pde import BlackScholesPDE
