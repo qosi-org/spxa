@@ -385,3 +385,41 @@ class TestStochasticLocalVol:
                     lv_do, rel=2e-3
                 )
         assert uo == [5.80, 6.00, 6.33]
+
+
+class TestRoughVolatility:
+    PARAMS = (0.04, 0.04, 0.3, 0.3, -0.7, 0.1)
+
+    def test_rough_heston_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$23.23\\%$, $17.38\\%$ and $13.63\\%$",
+            "within $0.05$ of $H - 1/2 = -0.4$",
+            "$U = 20/\\sqrt{\\bar vT}$",
+        ):
+            assert s in text, s
+        vols = v.RoughHeston(*self.PARAMS).implied_vol(np.array([0.8, 1.0, 1.2]), 1.0, n_steps=400)
+        assert [round(100 * x, 2) for x in vols] == [23.23, 17.38, 13.63]
+        # skew slope and second-order convergence at H = 1/2: tests/unit/vol/test_rough_heston.py
+
+    def test_lifted_heston_gaps(self) -> None:
+        assert "$1.34$, $0.79$, $0.46$ and $0.24$ vol points" in DOC.read_text(encoding="utf-8")
+        K = np.array([0.8, 0.9, 1.0, 1.1, 1.2])
+        rough = v.RoughHeston(*self.PARAMS).implied_vol(K, 1.0, n_steps=400)
+        gaps = [
+            round(
+                100
+                * np.abs(
+                    v.LiftedHeston(*self.PARAMS, n=n).implied_vol(K, 1.0, n_steps=400) - rough
+                ).max(),
+                2,
+            )
+            for n in (5, 10, 20, 50)
+        ]
+        assert gaps == [1.34, 0.79, 0.46, 0.24]
+
+    def test_calibration_claims(self) -> None:
+        # recovery within 0.2% (rtol 2e-3) and the H = 1/2 RMSE above 0.01: tests/unit/vol/test_rough_calibration.py
+        text = DOC.read_text(encoding="utf-8")
+        assert "recovers the parameters within $0.2\\%$" in text
+        assert "leaves an RMSE above one vol point" in text

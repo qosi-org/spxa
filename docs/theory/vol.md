@@ -19,6 +19,7 @@
 | Andreasen–Huge | `AndreasenHugeSurface`, `calibrate_andreasen_huge`, `AndreasenHugeFit`, `andreasen_huge_grid`, `piecewise_constant_vol` |
 | Local-vol simulation and checks | `local_vol_paths`, `LocalVolPaths`, `local_vol_diagnostics`, `LocalVolDiagnostics` |
 | Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `calibrate_leverage_particles`, `slv_paths`, `SLVPDE`, `calibrate_slv`, `as_local_vol` |
+| Rough Heston | `RoughHeston`, `fractional_riccati`, `LiftedHeston`, `lifted_weights`, `calibrate_rough_heston`, `RoughHestonFit` |
 
 ---
 
@@ -290,3 +291,30 @@ The leverage depends on the model's own conditional expectation, so the model is
 ### 9.5 The mixing fraction
 
 Every $\eta$ reprices the same vanillas, but path-dependent prices move. At $\eta = 0$ the variance is deterministic and the model is local volatility: a one-year down-and-out call (spot and strike 100, barrier 85, $r = 3\%$, $q = 1\%$) on the SSVI surface agrees with the one-factor local-vol PDE value $8.18$ within 0.2%. A one-year up-and-out call with barrier 130 is worth $5.80$, $6.00$ and $6.33$ at $\eta = 0$, $0.5$ and $1$, while the smile is matched within 6 bp in each case. `calibrate_slv` builds the model for a given $\eta$ from a local-vol surface or a `VolSurface`. In practice $\eta$ is set from barrier or forward-start quotes, which the vanillas cannot pin down.
+
+## 10. Rough volatility
+
+### 10.1 Rough Heston
+
+Realised volatility is rough: its log increments behave like fractional Brownian motion with Hurst index $H \approx 0.1$. Implied volatility shows the same roughness, with an at-the-money skew that grows like $T^{H - 1/2}$ as $T \to 0$. A classical diffusion gives a flat skew there. In the rough Heston model (El Euch & Rosenbaum) the variance is a Volterra process,
+
+$$
+v_t = v_0 + \frac{1}{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}\bigl(\lambda(\theta - v_s)\,ds + \nu\sqrt{v_s}\,dB_s\bigr), \qquad \alpha = H + \tfrac12,
+$$
+
+and the characteristic function of $X_T = \log(S_T/F_T)$ stays semi-closed:
+
+$$
+E\,e^{iuX_T} = \exp\Bigl(\theta\lambda\int_0^T h(u, s)\,ds + v_0\,I^{1-\alpha}h(u, T)\Bigr), \qquad
+D^\alpha h = -\tfrac12(u^2 + iu) + (iu\rho\nu - \lambda)h + \tfrac12\nu^2h^2,
+$$
+
+with $h(u, 0) = 0$. `fractional_riccati` solves the fractional Riccati equation with the fractional Adams predictor–corrector, vectorised over $u$. At $H = 1/2$ the model is Heston with $\kappa = \lambda$ and $\xi = \nu$, and the characteristic function converges to Heston's at second order in the step. `RoughHeston` prices vanillas by a Fourier integral on the normalised Lewis contour. The explicit predictor becomes unstable at large $|u|$ when $H$ is small, so the integral is truncated at $U = 20/\sqrt{\bar vT}$, beyond which the integrand is negligible. $E[v_t]$ has a closed form through the Mittag-Leffler function. For $v_0 = \theta = 0.04$, $\lambda = \nu = 0.3$, $\rho = -0.7$ and $H = 0.1$, the one-year implied volatilities at strikes $0.8$, $1$ and $1.2$ (unit forward) are $23.23\%$, $17.38\%$ and $13.63\%$. Between expiries of $0.0025$ and $0.01$ years (about one and four days), the log-log slope of the at-the-money skew is within $0.05$ of $H - 1/2 = -0.4$.
+
+### 10.2 Lifted Heston
+
+The fractional kernel is a completely monotone function, so it is a mixture of exponentials, $t^{\alpha-1}/\Gamma(\alpha) = \int_0^\infty e^{-xt}\,\mu(dx)$. The lifted Heston model of Abi Jaber replaces $\mu$ by $n$ atoms $c_i\delta_{x_i}$ on a geometric grid (`lifted_weights`). The variance is then a sum of $n$ Markovian Ornstein–Uhlenbeck-like factors, and the Riccati equation becomes a system of $n$ ordinary equations. `LiftedHeston` solves it by exponential time differencing. With one factor at speed zero it is classical Heston. As $n$ grows the smile converges to rough Heston's: in the example of §10.1 the largest one-year gap over strikes $0.8$–$1.2$ is $1.34$, $0.79$, $0.46$ and $0.24$ vol points for $n = 5$, $10$, $20$ and $50$. Lifted Heston is Markovian in a finite state, so it can be simulated and fed to PDE solvers, at the cost of a factor count that grows as maturities get shorter.
+
+### 10.3 Calibration
+
+`calibrate_rough_heston` fits $(v_0, \theta, \nu, \rho, H)$ to implied-volatility smiles by bounded least squares, with $\lambda$ fixed by default because it is weakly identified alongside $\theta$. Fitted to its own smiles at three expiries from $0.1$ to $1.5$ years, it recovers the parameters within $0.2\%$. The residual is set by the accuracy of the implied-volatility inversion inside the finite-difference Jacobian. Fixing $H = 1/2$ (classical Heston) on the same smiles leaves an RMSE above one vol point: no choice of $\nu$ and $\rho$ makes the skew steep at $0.1$ years and still right at $1.5$ years.

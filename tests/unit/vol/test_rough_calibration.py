@@ -31,7 +31,7 @@ def test_fixed_hurst_and_validation() -> None:
         RoughHeston(0.04, 0.04, 0.3, 0.3, -0.5, 0.5),
         free=("v0", "theta", "nu", "rho"),
     )
-    assert heston.model.hurst == 0.5 and heston.rmse > 20 * 1e-5
+    assert heston.model.hurst == 0.5 and heston.rmse > 0.01  # more than one vol point
     with pytest.raises(ValueError):
         calibrate_rough_heston(TS, KS, VOLS, TRUE, free=("kappa",))
     with pytest.raises(ValueError):
