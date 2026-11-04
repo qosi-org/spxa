@@ -130,7 +130,17 @@ Cheyette calibration
     :func:`calibrate_cheyette`: piecewise levels and a global skew fitted to swaption smiles.
 Cheyette PDE
     :class:`CheyettePDE`: split semi-Lagrangian / Crank-Nicolson solver in (x, y) with exercise.
+LIBOR market model
+    :class:`LiborMarketModel` with :class:`AbcdVol` volatilities, parametric correlations and PCA rank reduction.
 """
+
+from spxa.rates.lmm import (
+    AbcdVol,
+    LiborMarketModel,
+    exponential_correlation,
+    rebonato_correlation,
+    reduce_rank,
+)
 
 from spxa.rates.cheyette_pde import CheyettePDE
 
@@ -525,4 +535,9 @@ __all__ = [
     "CheyetteCalibration",
     "calibrate_cheyette",
     "CheyettePDE",
+    "AbcdVol",
+    "LiborMarketModel",
+    "exponential_correlation",
+    "rebonato_correlation",
+    "reduce_rank",
 ]
