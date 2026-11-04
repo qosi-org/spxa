@@ -122,6 +122,45 @@ class LocalVolSurface:
             y = np.log(np.maximum(SS, 0.0) / F)
         return self.local_vol_k(np.clip(y, *self.y_range), T)
 
+    def density(
+        self,
+        T: float,
+        spot: float,
+        r: float,
+        q: float = 0.0,
+        n: int = 801,
+        n_time: int = 400,
+        width: float = 8.0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        r"""Density of :math:`y = \log(S_T/F_T)` under the local-vol diffusion.
+
+        The Fokker–Planck equation of :math:`X = \log S`,
+        :math:`dX = (r - q - \tfrac12\sigma^2)dt + \sigma\,dW`, is marched
+        from a delta at :math:`\log S_0` with :class:`spxa.pde.FokkerPlanck1D`
+        on :math:`\pm` ``width`` ATM standard deviations. By Gyöngy's theorem
+        the marginal law of any diffusion with these one-dimensional
+        marginals is the one implied by the surface, so the result must agree
+        with the Breeden–Litzenberger density :math:`e^{rT}\partial_{KK}C`.
+        Returns the nodes in :math:`y` and the density values.
+        """
+        from spxa.pde import FokkerPlanck1D
+        from spxa.pde.grid import Grid1D
+
+        sd = float(np.sqrt(self.surface.total_variance(0.0, T)))
+        x0 = float(np.log(spot))
+        grid = Grid1D.uniform(x0 - width * sd, x0 + width * sd, n)
+
+        def vol(x: np.ndarray, t: float) -> np.ndarray:
+            return np.asarray(self(np.exp(x), t), float)
+
+        def drift(x: np.ndarray, t: float) -> np.ndarray:
+            v = vol(x, t)
+            return r - q - 0.5 * v * v
+
+        sol = FokkerPlanck1D(drift, vol, grid).solve(x0, T, n_time=n_time)
+        y = grid.nodes - float(np.log(self.surface.forward(T)))
+        return y, np.asarray(sol.density, float)
+
     def dupire_pde(self, r: float, q: float = 0.0) -> Any:
         """:class:`spxa.pde.DupirePDE` driven by this local volatility (constant ``r``, ``q``)."""
         from spxa.pde import DupirePDE
