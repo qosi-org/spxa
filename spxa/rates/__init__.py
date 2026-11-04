@@ -158,7 +158,16 @@ Inflation models
     :class:`JarrowYildirim`: nominal and real Hull–White with a lognormal index; YoY convexity.
     :func:`jy_paths` (:class:`JYPaths`) simulates it; :func:`calibrate_jarrow_yildirim` fits it to
     :class:`InflationOptionQuote` prices.
+Risk adapter
+    :func:`curve_price` (:class:`CurveQuote`) and :func:`curve_pricing_fn` value :mod:`spxa.risk`
+    swaps on yield curves for stress testing.
 """
+
+from spxa.rates.risk_adapter import (
+    CurveQuote,
+    curve_price,
+    curve_pricing_fn,
+)
 
 from spxa.rates.inflation_swaps import (
     YearOnYearInflationSwap,
@@ -676,4 +685,7 @@ __all__ = [
     "InflationLinkedBond",
     "YearOnYearInflationSwap",
     "ZeroCouponInflationSwap",
+    "CurveQuote",
+    "curve_price",
+    "curve_pricing_fn",
 ]
