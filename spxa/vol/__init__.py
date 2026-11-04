@@ -107,7 +107,17 @@ Martingale optimal transport
     :func:`mot_bounds`: model-free bounds by linear programming, with dual superhedges.
 Entropic MOT
     :func:`mot_sinkhorn`: Sinkhorn iterations with a martingale constraint.
+Robust pricing
+    :func:`robust_bounds`: forward-start bounds from a surface and the superhedge as trades.
 """
+
+from spxa.vol.robust import (
+    StaticReplication,
+    forward_start_call,
+    forward_start_straddle,
+    robust_bounds,
+    static_replication,
+)
 
 from spxa.vol.mot_sinkhorn import (
     SinkhornResult,
@@ -435,4 +445,9 @@ __all__ = [
     "ot_solve",
     "SinkhornResult",
     "mot_sinkhorn",
+    "StaticReplication",
+    "forward_start_call",
+    "forward_start_straddle",
+    "robust_bounds",
+    "static_replication",
 ]
