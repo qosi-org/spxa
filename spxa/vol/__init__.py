@@ -71,7 +71,11 @@ Local-vol Monte Carlo
     :func:`local_vol_paths` (log-Euler) and :class:`LocalVolPaths`.
 Local-vol diagnostics
     :func:`local_vol_diagnostics`: Dupire-PDE repricing errors and the arbitrage (undefined) region of a local-vol surface.
+Heston
+    :class:`Heston`: forward-measure Heston with Lewis pricing, the SV leg of SLV.
 """
+
+from spxa.vol.heston import Heston
 
 from spxa.vol.lv_diagnostics import LocalVolDiagnostics, local_vol_diagnostics
 
@@ -265,4 +269,5 @@ __all__ = [
     "local_vol_paths",
     "LocalVolDiagnostics",
     "local_vol_diagnostics",
+    "Heston",
 ]
