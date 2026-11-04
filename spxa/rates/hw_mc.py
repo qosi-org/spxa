@@ -34,7 +34,7 @@ import numpy as np
 
 from spxa.rates.hull_white import HullWhite
 
-__all__ = ["HullWhitePaths", "hull_white_paths"]
+__all__ = ["HullWhitePaths", "hull_white_paths", "hull_white_transition"]
 
 
 @dataclass(frozen=True)
@@ -106,3 +106,37 @@ def hull_white_paths(
             out_x.append(z[:n_paths] + model.mean_x(t1))
             out_d.append(P0 * np.exp(-J[:n_paths] - 0.5 * model.integrated_variance(t1)))
     return HullWhitePaths(model, np.r_[0.0, req], np.array(out_x), np.array(out_d))
+
+
+def hull_white_transition(
+    model: HullWhite, t0: float, t1: float, x: np.ndarray, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Exact step of the state from ``t0`` to ``t1``: returns :math:`x_{t_1}` and
+    :math:`D(t_0, t_1) = e^{-\int_{t_0}^{t_1} r\,du}` for each start value in ``x``.
+
+    The same :math:`(z, J)` transition as :func:`hull_white_paths`, started
+    from :math:`z = x - m(t_0)`; the deterministic part of the discount is
+    :math:`P(0, t_1)/P(0, t_0)\,e^{-\frac12(\operatorname{Var}J_{t_1} - \operatorname{Var}J_{t_0})}`.
+    """
+    z = np.asarray(x, float) - model.mean_x(t0)
+    dJ = np.zeros_like(z)
+    knots = model.sigma_times[(model.sigma_times > t0) & (model.sigma_times < t1)]
+    grid = np.r_[t0, knots, t1]
+    a = model.a
+    for u0, u1 in zip(grid[:-1], grid[1:]):
+        h = u1 - u0
+        sig = float(model.sigma[np.searchsorted(model.sigma_times, u0, side="right")])
+        Bh = -np.expm1(-a * h) / a
+        B2 = -np.expm1(-2 * a * h) / (2 * a)
+        v1 = sig * sig * B2
+        v2 = sig * sig * (h - 2 * Bh + B2) / (a * a)
+        c12 = sig * sig * (Bh - B2) / a
+        L11 = np.sqrt(v1)
+        L21 = c12 / L11
+        L22 = np.sqrt(max(v2 - L21 * L21, 0.0))
+        g1, g2 = rng.standard_normal(z.shape), rng.standard_normal(z.shape)
+        z, dJ = np.exp(-a * h) * z + L11 * g1, dJ + Bh * z + L21 * g1 + L22 * g2
+    c = model.curve
+    det = float(c.discount(t1)) / float(c.discount(t0)) if t0 > 0 else float(c.discount(t1))
+    var = model.integrated_variance(t1) - (model.integrated_variance(t0) if t0 > 0 else 0.0)
+    return z + model.mean_x(t1), det * np.exp(-dJ - 0.5 * var)

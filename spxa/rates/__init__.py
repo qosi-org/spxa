@@ -145,7 +145,17 @@ Bermudan swaptions
     :func:`bermudan_swaption`: co-terminal exercise into the remaining swap.
 Bermudan engines
     :func:`bermudan_pde` and :func:`bermudan_tree`: backward induction on lattices.
+Least-squares Monte Carlo
+    :func:`lsm`: Longstaff-Schwartz lower bounds for Bermudan exercise.
 """
+
+from spxa.rates.lsm import (
+    ExerciseProblem,
+    LSMPolicy,
+    LSMResult,
+    hull_white_exercise_problem,
+    lsm,
+)
 
 from spxa.rates.bermudan_engines import (
     bermudan_pde,
@@ -225,7 +235,7 @@ from spxa.rates.hw_pde import HullWhitePDE
 
 from spxa.rates.hw_tree import HullWhiteTree
 
-from spxa.rates.hw_mc import HullWhitePaths, hull_white_paths
+from spxa.rates.hw_mc import HullWhitePaths, hull_white_paths, hull_white_transition
 
 from spxa.rates.model_cashflows import ModelCashflows, coupon_cashflows, swap_cashflows
 
@@ -545,6 +555,7 @@ __all__ = [
     "coupon_cashflows",
     "HullWhitePaths",
     "hull_white_paths",
+    "hull_white_transition",
     "HullWhiteTree",
     "HullWhitePDE",
     "HullWhiteCalibration",
@@ -598,4 +609,9 @@ __all__ = [
     "bermudan_from_times",
     "bermudan_pde",
     "bermudan_tree",
+    "ExerciseProblem",
+    "LSMPolicy",
+    "LSMResult",
+    "hull_white_exercise_problem",
+    "lsm",
 ]
