@@ -9,6 +9,7 @@ import pytest
 
 from spxa.market.curves import FlatCurve
 from spxa.rates.jarrow_yildirim import JarrowYildirim
+from spxa.rates.jy_mc import jy_paths
 
 NOMINAL, REAL = FlatCurve(0.03), FlatCurve(0.01)
 PARAMS = dict(
@@ -84,3 +85,21 @@ def test_year_on_year_swaps() -> None:
         JarrowYildirim(
             NOMINAL, REAL, 100.0, **{**PARAMS, "rho_nr": 0.99, "rho_ni": 0.99, "rho_ri": -0.99}
         )
+
+
+def test_monte_carlo_reprices_curves_and_yoy_convexity() -> None:
+    paths = jy_paths(JY, 10.0, 200, 100_000, record=(1.0, 5.0, 9.0), seed=1)
+    n = paths.discount.shape[0]
+    for T in (1.0, 5.0, 10.0):
+        c = paths.column(T)
+        d, idx = paths.discount[:, c], paths.index[:, c] / 100.0
+        assert abs(d.mean() - math.exp(-0.03 * T)) < 3 * d.std() / math.sqrt(n)
+        assert abs((d * idx).mean() - math.exp(-0.01 * T)) < 3 * (d * idx).std() / math.sqrt(n)
+    c9, c10 = paths.column(9.0), paths.column(10.0)
+    pay = paths.discount[:, c10] * (paths.index[:, c10] / paths.index[:, c9] - 1.0)
+    se = pay.std() / math.sqrt(n)
+    assert abs(pay.mean() - JY.yoy_swaplet(9.0, 10.0)) < 3 * se
+    naive = math.exp(-0.3) * math.expm1(0.02)  # the swaplet without convexity
+    assert abs(pay.mean() - naive) > 8 * se
+    with pytest.raises(KeyError):
+        paths.column(2.5)

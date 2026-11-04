@@ -154,7 +154,13 @@ Inflation
     zero-coupon inflation swaps, with :class:`Seasonality` and a real discount curve.
 Inflation models
     :class:`JarrowYildirim`: nominal and real Hull–White with a lognormal index; YoY convexity.
+    :func:`jy_paths` (:class:`JYPaths`) simulates it.
 """
+
+from spxa.rates.jy_mc import (
+    JYPaths,
+    jy_paths,
+)
 
 from spxa.rates.jarrow_yildirim import JarrowYildirim
 
@@ -647,4 +653,6 @@ __all__ = [
     "InflationIndex",
     "month_start",
     "JarrowYildirim",
+    "JYPaths",
+    "jy_paths",
 ]
