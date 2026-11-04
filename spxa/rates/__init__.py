@@ -143,7 +143,14 @@ SABR-LMM
     :class:`SABRLMM`: CEV forwards with a shared lognormal volatility factor.
 Bermudan swaptions
     :func:`bermudan_swaption`: co-terminal exercise into the remaining swap.
+Bermudan engines
+    :func:`bermudan_pde` and :func:`bermudan_tree`: backward induction on lattices.
 """
+
+from spxa.rates.bermudan_engines import (
+    bermudan_pde,
+    bermudan_tree,
+)
 
 from spxa.rates.bermudan import (
     BermudanSwaption,
@@ -589,4 +596,6 @@ __all__ = [
     "BermudanSwaption",
     "bermudan_swaption",
     "bermudan_from_times",
+    "bermudan_pde",
+    "bermudan_tree",
 ]
