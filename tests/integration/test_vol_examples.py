@@ -62,3 +62,19 @@ def test_slv_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "UO(130): PDE 6.0128" in out
     assert "PDE within 3 standard errors: True" in out
     assert "max gap 1.38%" in out
+
+
+def test_rough_example(capsys: pytest.CaptureFixture[str]) -> None:
+    out = _run("vol_rough_example.py", capsys)
+    assert "T=1.0   vols  23.23  20.24  17.38  14.96  13.63" in out
+    assert "-> power -0.420 (H - 1/2 = -0.4)" in out
+    assert "classical Heston skew stays bounded: True" in out
+    for row in ("n=5   1.34", "n=20  0.46", "n=50  0.24"):
+        assert row in out
+    assert "H free: H = 0.0800" in out and "H = 1/2: RMSE 1.19 vol points" in out
+    assert "vols  22.98  19.57  16.30  13.44  12.00" in out
+    assert "conditional and plain agree within 3 SE: True" in out
+    assert "sqrt E[VIX^2] 21.31, futures 18.04" in out
+    assert "rough Bergomi VIX smile: 81.2 81.4 81.9" in out
+    assert "Heston VIX smile:        94.8 86.4 76.0" in out
+    assert "nan" not in out and "False" not in out
