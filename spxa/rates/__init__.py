@@ -153,11 +153,17 @@ Inflation
     :func:`bootstrap_inflation_curve` builds an :class:`InflationCurve` of forward fixings from
     zero-coupon inflation swaps, with :class:`Seasonality` and a real discount curve.
     :class:`InflationLinkedBond`: TIPS conventions, curve value and deflation floor.
+    :class:`ZeroCouponInflationSwap` and :class:`YearOnYearInflationSwap` (model convexity).
 Inflation models
     :class:`JarrowYildirim`: nominal and real Hull–White with a lognormal index; YoY convexity.
     :func:`jy_paths` (:class:`JYPaths`) simulates it; :func:`calibrate_jarrow_yildirim` fits it to
     :class:`InflationOptionQuote` prices.
 """
+
+from spxa.rates.inflation_swaps import (
+    YearOnYearInflationSwap,
+    ZeroCouponInflationSwap,
+)
 
 from spxa.rates.inflation_bonds import InflationLinkedBond
 
@@ -668,4 +674,6 @@ __all__ = [
     "JYPaths",
     "jy_paths",
     "InflationLinkedBond",
+    "YearOnYearInflationSwap",
+    "ZeroCouponInflationSwap",
 ]
