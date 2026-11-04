@@ -55,3 +55,18 @@ def test_hjm_cheyette_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "PDE within 1.5 bp of the quotes: True" in out
     assert "European 0.003784, American 0.010735" in out
     assert "nan" not in out and ": False" not in out
+
+
+def test_lmm_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "rates_lmm_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "abcd 0.0500 0.0900 0.4400 0.1100" in out
+    assert "caplets exact (< 1e-12): True" in out
+    assert "correlation beta 0.1409, rho_inf 0.5178" in out
+    assert "max error 3.8 bp" in out
+    assert "Rebonato 131.18 bp, MC 131.20 +- 1.09 bp" in out
+    assert "4.0Y x 6M ATM: forward-looking  20.40 bp, in arrears  20.68 bp" in out
+    assert "K 3.02%: Hagan 20.67%, MC 20.75%" in out
+    assert out.count("within 3 SE: True") == 2
+    assert "prices within 3 SE + 1%: True" in out
+    assert "nan" not in out and ": False" not in out
