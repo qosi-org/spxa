@@ -76,10 +76,19 @@ Caps and floors
 Swaptions
     :class:`Swaption` (physical or cash settled), :func:`swaption`, :func:`cash_annuity`.
 SABR
-    :class:`SABR`, :func:`sabr_lognormal_vol`, :func:`sabr_normal_vol` (Hagan 2002, optional shift).
+    :class:`SABR`, :func:`sabr_lognormal_vol`, :func:`sabr_normal_vol` (Hagan 2002 or Obłój, optional shift);
+    :func:`calibrate_sabr` and :func:`alpha_from_atm`.
 """
 
-from spxa.rates.sabr import SABR, sabr_lognormal_vol, sabr_normal_vol, z_over_chi
+from spxa.rates.sabr import (
+    SABR,
+    SABRFit,
+    alpha_from_atm,
+    calibrate_sabr,
+    sabr_lognormal_vol,
+    sabr_normal_vol,
+    z_over_chi,
+)
 
 from spxa.rates.swaptions import Swaption, cash_annuity, swaption
 
@@ -358,4 +367,7 @@ __all__ = [
     "sabr_lognormal_vol",
     "sabr_normal_vol",
     "z_over_chi",
+    "SABRFit",
+    "alpha_from_atm",
+    "calibrate_sabr",
 ]

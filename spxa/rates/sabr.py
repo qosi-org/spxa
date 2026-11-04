@@ -41,7 +41,15 @@ import numpy as np
 
 from spxa.market.black import bachelier_price, black_price
 
-__all__ = ["SABR", "sabr_lognormal_vol", "sabr_normal_vol", "z_over_chi"]
+__all__ = [
+    "SABR",
+    "SABRFit",
+    "alpha_from_atm",
+    "calibrate_sabr",
+    "sabr_lognormal_vol",
+    "sabr_normal_vol",
+    "z_over_chi",
+]
 
 
 def z_over_chi(z: Any, rho: float) -> Any:
@@ -168,3 +176,114 @@ class SABR:
         if vol == "normal":
             return bachelier_price(F, K, T, self.normal_vol(F, K, T), df, option)
         raise ValueError("vol must be 'lognormal' or 'normal'")
+
+
+def alpha_from_atm(
+    atm_vol: float, F: float, T: float, beta: float, rho: float, nu: float, shift: float = 0.0
+) -> float:
+    """The :math:`\\alpha` that reproduces a Black ATM vol in Hagan's formula.
+
+    At the money the formula is a cubic in :math:`\\alpha`:
+    :math:`\\frac{(1-\\beta)^2 T}{24 f^{2-2\\beta}}\\alpha^3 + \\frac{\\rho\\beta\\nu T}{4 f^{1-\\beta}}\\alpha^2
+    + \\bigl(1 + \\frac{2-3\\rho^2}{24}\\nu^2 T\\bigr)\\alpha - \\sigma f^{1-\\beta} = 0`
+    with :math:`f = F + s`. The smallest positive real root is returned,
+    polished by Newton steps on the formula itself.
+    """
+    f = F + shift
+    if f <= 0 or atm_vol <= 0:
+        raise ValueError("need F + shift > 0 and a positive ATM vol")
+    b = 1.0 - beta
+    fb = f**b
+    coeffs = [
+        b * b * T / (24 * fb * fb),
+        rho * beta * nu * T / (4 * fb),
+        1 + (2 - 3 * rho * rho) / 24 * nu * nu * T,
+        -atm_vol * fb,
+    ]
+    while coeffs[0] == 0 and len(coeffs) > 2:
+        coeffs = coeffs[1:]
+    roots = np.roots(coeffs)
+    real = np.sort(
+        [
+            r.real
+            for r in np.atleast_1d(roots)
+            if abs(r.imag) < 1e-12 * max(1.0, abs(r)) and r.real > 0
+        ]
+    )
+    if real.size == 0:
+        raise ValueError("no positive alpha reproduces the ATM vol")
+    a = float(real[0])
+    # polish against the full formula
+    for _ in range(3):
+        g = sabr_lognormal_vol(F, F, T, a, beta, rho, nu, shift) - atm_vol
+        h = 1e-7 * a
+        dg = (
+            sabr_lognormal_vol(F, F, T, a + h, beta, rho, nu, shift)
+            - sabr_lognormal_vol(F, F, T, a - h, beta, rho, nu, shift)
+        ) / (2 * h)
+        a -= g / dg
+    return a
+
+
+@dataclass(frozen=True)
+class SABRFit:
+    """Result of :func:`calibrate_sabr`."""
+
+    model: SABR
+    errors: np.ndarray
+    rmse: float
+
+
+def calibrate_sabr(
+    F: float,
+    strikes: Any,
+    vols: Any,
+    T: float,
+    beta: float,
+    shift: float = 0.0,
+    vol_type: str = "lognormal",
+    method: str = "hagan",
+    weights: Any = None,
+    atm_vol: Any = None,
+) -> SABRFit:
+    """Fit :math:`(\\alpha, \\rho, \\nu)` of one smile with :math:`\\beta` fixed.
+
+    ``vol_type`` says whether ``vols`` are Black (of the shifted rate) or
+    normal volatilities. If ``atm_vol`` (Black, lognormal quotes only) is
+    given, :math:`\\alpha` is tied to it through :func:`alpha_from_atm`, so
+    the ATM quote is matched exactly and only :math:`\\rho, \\nu` are free.
+    Otherwise all three are fitted. The least-squares fit uses the
+    parametrisation :math:`\\rho = \\tanh a`, :math:`\\nu = e^b`.
+    """
+    from scipy.optimize import least_squares
+
+    K = np.asarray(strikes, float)
+    v = np.asarray(vols, float)
+    w = np.ones_like(v) if weights is None else np.asarray(weights, float)
+    if vol_type not in ("lognormal", "normal"):
+        raise ValueError("vol_type must be 'lognormal' or 'normal'")
+    if atm_vol is not None and vol_type != "lognormal":
+        raise ValueError("atm_vol pins alpha through the Black ATM formula")
+
+    def model_vols(alpha: float, rho: float, nu: float) -> np.ndarray:
+        if vol_type == "normal":
+            return np.asarray(sabr_normal_vol(F, K, T, alpha, beta, rho, nu, shift), float)
+        return np.asarray(sabr_lognormal_vol(F, K, T, alpha, beta, rho, nu, shift, method), float)
+
+    def unpack(x: np.ndarray) -> tuple[float, float, float]:
+        rho, nu = float(np.tanh(x[0])), float(np.exp(x[1]))
+        if atm_vol is not None:
+            return alpha_from_atm(float(atm_vol), F, T, beta, rho, nu, shift), rho, nu
+        return float(np.exp(x[2])), rho, nu
+
+    def resid(x: np.ndarray) -> np.ndarray:
+        return w * (model_vols(*unpack(x)) - v)
+
+    f = F + shift
+    i_atm = int(np.argmin(np.abs(K - F)))
+    level = v[i_atm] * (f ** (1 - beta) if vol_type == "lognormal" else f ** (-beta))
+    x0 = [0.0, np.log(0.3)] + ([] if atm_vol is not None else [np.log(level)])
+    sol = least_squares(resid, np.array(x0), method="lm", xtol=1e-15, ftol=1e-15, gtol=1e-15)
+    alpha, rho, nu = unpack(sol.x)
+    err = model_vols(alpha, rho, nu) - v
+    return SABRFit(SABR(alpha, beta, rho, nu, shift), err, float(np.sqrt(np.mean(err * err))))
