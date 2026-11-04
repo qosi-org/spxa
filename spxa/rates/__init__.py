@@ -108,7 +108,11 @@ G2++ calibration
     :func:`calibrate_g2pp`: least-squares G2++ calibration to swaptions and caps.
 Hull-White two-factor
     :class:`HullWhite2F`: Hull-White two-factor parameters and the bijection with G2++.
+Black-Karasinski
+    :class:`BlackKarasinski`: lognormal short rate on a curve-fitted trinomial tree.
 """
+
+from spxa.rates.black_karasinski import BlackKarasinski, BlackKarasinskiTree
 
 from spxa.rates.hw2f import HullWhite2F
 
@@ -460,4 +464,6 @@ __all__ = [
     "G2PPCalibration",
     "calibrate_g2pp",
     "HullWhite2F",
+    "BlackKarasinski",
+    "BlackKarasinskiTree",
 ]
