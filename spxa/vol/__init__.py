@@ -116,7 +116,11 @@ Variance swaps
     :func:`heston_volatility_swap`: exact Heston volatility swap from the Laplace transform.
     :class:`ForwardVarianceCurve`: forward variance from variance swap strikes; :func:`vix_index`.
 
+Model risk
+    :class:`ModelRisk`: Cont's coherent and penalised model-risk measures.
 """
+
+from spxa.vol.model_risk import ModelRisk
 
 from spxa.vol.variance_swaps import (
     ForwardVarianceCurve,
@@ -487,4 +491,5 @@ __all__ = [
     "variance_swap_strike",
     "heston_integrated_variance_laplace",
     "heston_volatility_swap",
+    "ModelRisk",
 ]
