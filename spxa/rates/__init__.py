@@ -84,7 +84,11 @@ SABR Monte Carlo
     :func:`sabr_paths` (exact volatility, Euler forward, absorption with a Brownian bridge for beta = 0).
 Caplet stripping
     :func:`strip_caplet_vols` bootstraps a piecewise-constant :class:`CapletVolCurve` from flat cap quotes.
+Swaption cube
+    :class:`SwaptionCube`: SABR smiles on an expiry x tenor matrix, bilinear in log alpha, rho, log nu.
 """
+
+from spxa.rates.cube import SwaptionCube
 
 from spxa.rates.stripping import CapletVolCurve, strip_caplet_vols
 
@@ -388,4 +392,5 @@ __all__ = [
     "sabr_paths",
     "CapletVolCurve",
     "strip_caplet_vols",
+    "SwaptionCube",
 ]
