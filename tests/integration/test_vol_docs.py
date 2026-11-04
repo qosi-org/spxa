@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from statistics import NormalDist
 import re
 from pathlib import Path
 
@@ -10,7 +11,10 @@ import numpy as np
 import pytest
 
 import spxa.vol as v
+from spxa.market.black import black_price
+from spxa.market.curves import EquityForward
 from tests.unit.vol.test_essvi import TABLE1
+from tests.unit.vol.test_fengler import _surface_inputs
 
 DOC = Path(__file__).resolve().parents[2] / "docs" / "theory" / "vol.md"
 VOGT = v.SVIRaw(a=-0.0410, b=0.1331, rho=0.3060, m=0.3586, sigma=0.4153)
@@ -38,6 +42,11 @@ def test_doc_mentions_the_checked_numbers() -> None:
         "10^{-17}",
         "(s - s_i)(s_{i+1} - s)(s_i + s + s_{i+1})",
         "\\theta_{i+1}/20",
+        "lowers the middle price to 7.5",
+        "$0.005$",
+        "102.0201 and 98.0199",
+        "116.7539",
+        "below $10^{-12}$",
     ):
         assert s in text, s
 
@@ -203,3 +212,88 @@ class TestDistributions:
         )
         bad = v.ImpliedDistribution(VOGT)
         assert np.min(np.diff(bad.cdf(np.linspace(0.5, 1.3, 801)))) < 0
+
+
+FWD = EquityForward(100.0, 0.03, dividend_yield=0.01)
+SKEWED = v.SSVI(-0.7, v.PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t)
+
+
+class TestSurfaceConstruction:
+    def test_repair_example(self) -> None:
+        res = v.repair_call_prices([[90.0, 100.0, 110.0]], [[13.0, 8.0, 2.0]], [100.0], [1.0])
+        assert res.prices[0] == pytest.approx([13.0, 7.5, 2.0], abs=1e-9)
+        assert res.l1 == pytest.approx(0.005, abs=1e-12)
+        assert res.violations_before == {"butterfly": 1} and res.violations_after == {}
+
+    def test_fengler_calendar_rows(self) -> None:
+        Ts, strikes, calls, Fs, Ds = _surface_inputs(0.02, 2)
+        surf = v.fengler_surface(Ts, strikes, calls, Fs, Ds)
+        assert surf.calendar_violation(20001) < 1e-12
+
+    def test_dns_and_delta_strikes(self) -> None:
+        assert round(v.atm_dns_strike(100.0, 1.0, 0.2), 4) == 102.0201
+        assert round(v.atm_dns_strike(100.0, 1.0, 0.2, premium_adjusted=True), 4) == 98.0199
+        k25 = v.strike_from_delta(0.25, 100.0, 1.0, 0.2)
+        assert k25 == pytest.approx(
+            100.0 * math.exp(0.2 * NormalDist().inv_cdf(0.75) + 0.02), rel=1e-12
+        )
+        assert round(k25, 4) == 116.7539
+        # the premium-adjusted call delta (K/F) N(d2) is the forward delta less the premium
+        F, K, T, sig = 100.0, 110.0, 1.0, 0.2
+        pa = v.black_delta(F, K, T, sig, premium_adjusted=True)
+        assert pa == pytest.approx(
+            v.black_delta(F, K, T, sig) - black_price(F, K, T, sig, 1.0, "call") / F, rel=1e-12
+        )
+
+    def test_sticky_moneyness_delta_is_larger_under_negative_skew(self) -> None:
+        surf = v.VolSurface(SKEWED, FWD)
+        K = np.array([80.0, 100.0, 120.0])
+        ss = surf.greeks(K, 1.0, dynamics="sticky_strike")["delta"]
+        sm = surf.greeks(K, 1.0, dynamics="sticky_moneyness")["delta"]
+        assert np.all(sm > ss)
+
+    def test_normalised_interpolation_is_exact_for_constant_phi_sqrt_theta(self) -> None:
+        ssvi = v.SSVI(
+            -0.5, lambda th: 0.8 / np.sqrt(th), lambda t: 0.04 * t
+        )  # phi sqrt(theta) = 0.8
+        interp = v.VarianceInterpolatedSurface(
+            [0.5, 2.0], [ssvi.slice(0.5), ssvi.slice(2.0)], "normalised"
+        )
+        k = np.linspace(-1.0, 0.8, 37)
+        for t in (0.7, 1.0, 1.6):
+            assert interp.total_variance(k, t) == pytest.approx(
+                ssvi.total_variance(k, t), abs=1e-14
+            )
+
+    def test_forward_vol_raises_on_calendar_arbitrage(self) -> None:
+        good = v.VolSurface(SKEWED, FWD)
+        assert np.all(
+            good.forward_variance_grid([0.25, 0.5, 1.0, 2.0], np.linspace(-1, 1, 21)) >= 0
+        )
+        # ATM variance increases, but the second slice dips below the first in the left wing
+        first, second = v.SVIRaw(0.02, 0.1, -0.5, 0.0, 0.2), v.SVIRaw(0.035, 0.05, -0.5, 0.0, 0.2)
+        bad = v.VolSurface.from_slices([0.5, 1.0], [first, second], FWD, "fixed_k")
+        assert bad.forward_vol(0.5, 1.0) > 0
+        with pytest.raises(ValueError):
+            bad.forward_vol(0.5, 1.0, k=-1.0)
+
+    def test_bumps(self) -> None:
+        surf = v.VolSurface(SKEWED, FWD)
+        s = 0.01
+        assert surf.bumped(v.skew_bump(s)).atm_skew(1.0) == pytest.approx(
+            surf.atm_skew(1.0) + s, abs=1e-9
+        )
+        hats = v.expiry_buckets([0.5, 1.0, 2.0], 1.0)
+        at = [float(h(np.array([0.0]), 0.75)[0]) for h in hats]
+        assert at == pytest.approx([0.5, 0.5, 0.0], abs=1e-15)
+
+    def test_json_round_trip_is_bit_exact(self) -> None:
+        surf = v.VolSurface(
+            v.SSVI(
+                -0.7, v.PowerLawPhi(1.1, 0.4), v.ATMVarianceCurve([0.5, 1, 2], [0.021, 0.043, 0.09])
+            ),
+            FWD,
+        )
+        back = v.loads(v.dumps(surf))
+        K, T = np.linspace(60, 160, 11), 1.3
+        assert np.array_equal(back.implied_vol(K, T), surf.implied_vol(K, T))

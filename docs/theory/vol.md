@@ -169,7 +169,7 @@ $$
 \min_{g,\,\gamma}\ \sum_i w_i\bigl(y_i - g(u_i)\bigr)^2 + \lambda\,\gamma^\top R\,\gamma,
 $$
 
-Here $\gamma = g''$ at the knots, so $\gamma \ge 0$ makes $g$ convex. The spline must also satisfy $(1 - u)^+ \le g \le 1$. `fengler_surface` fits the longest expiry first and each shorter one under $g_{T_1} \le g_{T_2}$. Imposing this only at the knots leaves violations of about $10^{-6}$ between them. Instead, each spline piece is written in Bernstein form on the union of both knot sets, halved, and every Bernstein coefficient of the difference is constrained. The difference then stays non-negative to below $10^{-12}$ everywhere on the overlap.
+Here $\gamma = g''$ at the knots, so $\gamma \ge 0$ makes $g$ convex. The spline must also satisfy $(1 - u)^+ \le g \le 1$. `fengler_surface` fits the longest expiry first and each shorter one under $g_{T_1} \le g_{T_2}$. Imposing this only at the knots leaves small violations between them. Instead, each spline piece is written in Bernstein form on the union of both knot sets, halved, and every Bernstein coefficient of the difference is constrained. The difference then stays non-negative to below $10^{-12}$ everywhere on the overlap.
 
 ---
 
