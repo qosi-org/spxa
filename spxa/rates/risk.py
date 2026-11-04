@@ -56,6 +56,9 @@ __all__ = [
     "KeyRateRisk",
     "key_rate_hats",
     "key_rate_deltas",
+    "HedgeResult",
+    "hedge_notionals",
+    "par_hedge",
 ]
 
 PriceFunction = Callable[[Mapping[str, YieldCurve]], float]
@@ -308,3 +311,61 @@ def key_rate_deltas(
         dn = {**curves, **{n: KeyRateShiftedCurve(curves[n], k, -e) for n in names}}
         d[i] = (pv(up) - pv(dn)) / (2 * bump)
     return KeyRateRisk(k, d)
+
+
+# ------------------------------------------------------------------- hedging
+@dataclass(frozen=True)
+class HedgeResult:
+    """Hedge notionals and the risk left after hedging."""
+
+    notionals: np.ndarray
+    residual: np.ndarray
+
+    @property
+    def residual_norm(self) -> float:
+        return float(np.linalg.norm(self.residual))
+
+
+def hedge_notionals(
+    target: Sequence[float],
+    hedges: Any,
+    weights: Optional[Sequence[float]] = None,
+) -> HedgeResult:
+    r"""Notionals :math:`n` minimising :math:`\lVert W^{1/2}(d + H n)\rVert_2`.
+
+    ``target`` is the risk vector :math:`d` of the book (quote, node or
+    key-rate deltas), and column :math:`j` of ``hedges`` is the same risk
+    of one unit of hedge :math:`j`. With as many independent hedges as risk
+    buckets the hedge is exact; with fewer, the residual is orthogonal (in
+    the :math:`W` inner product) to every hedge.
+    """
+    d = np.asarray(target, float)
+    H = np.asarray(hedges, float)
+    if H.ndim == 1:
+        H = H[:, None]
+    if H.shape[0] != d.size:
+        raise ValueError("hedges need one row per risk bucket")
+    w = np.ones(d.size) if weights is None else np.asarray(weights, float)
+    if w.shape != d.shape or np.any(w <= 0):
+        raise ValueError("need one positive weight per bucket")
+    r = np.sqrt(w)
+    n, *_ = np.linalg.lstsq(H * r[:, None], -d * r, rcond=None)
+    return HedgeResult(n, d + H @ n)
+
+
+def par_hedge(
+    pv: PriceFunction,
+    result: Any,
+    hedges: Sequence[PriceFunction],
+    bump: float = 1e-7,
+) -> HedgeResult:
+    """Hedge the quote deltas of ``pv`` with instruments given as price functions.
+
+    The Jacobian of ``result`` is computed once and reused for the book
+    and every hedge.
+    """
+    helpers, curves, names = _from_result(result)
+    J = quote_jacobian(helpers, curves, names, bump)
+    book = quote_deltas(pv, result, bump=bump, jacobian=J).deltas
+    H = np.column_stack([quote_deltas(h, result, bump=bump, jacobian=J).deltas for h in hedges])
+    return hedge_notionals(book, H)
