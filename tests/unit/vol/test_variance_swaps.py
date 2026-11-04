@@ -16,7 +16,9 @@ from spxa.vol.variance_swaps import (
     gamma_swap_strike,
     heston_integrated_variance_laplace,
     heston_volatility_swap,
+    realised_variance,
     variance_swap_mtm,
+    variance_swap_payoff,
     variance_swap_curve,
     variance_swap_strike,
     vix_index,
@@ -132,3 +134,30 @@ def test_term_structure_and_forward_variance_models() -> None:
         ForwardVarianceCurve([1.0, 2.0], [0.04, 0.01])  # total variance falls
     with pytest.raises(ValueError):
         ForwardVarianceCurve([2.0, 1.0], [0.04, 0.04])
+
+
+def test_realised_variance_and_discrete_monitoring() -> None:
+    # exact GBM: E[sum r_i^2]/T = sigma^2 + sigma^4 dt/4, the discrete-monitoring bias
+    sigma, steps, n = 0.4, 52, 200_000
+    dt = 1.0 / steps
+    rng = np.random.default_rng(0)
+    r = -0.5 * sigma**2 * dt + sigma * math.sqrt(dt) * rng.standard_normal((n, steps))
+    x, t = np.c_[np.zeros(n), np.cumsum(r, axis=1)], np.linspace(0.0, 1.0, steps + 1)
+    rv, rvd = realised_variance(x, t), realised_variance(x, t, demean=True)
+    assert abs(rv.mean() - (sigma**2 + sigma**4 * dt / 4)) < 3 * rv.std() / math.sqrt(n)
+    assert abs(rvd.mean() - sigma**2) < 3 * rvd.std() / math.sqrt(n)  # demeaned: unbiased
+    # daily Heston paths: realised variance prices the variance swap at E[V]/T
+    h = v.Heston(0.04, 1.5, 0.06, 0.5, -0.7)
+    days = np.linspace(0.0, 1.0, 253)
+    paths = v.slv_paths(
+        h, lambda y, s: np.ones_like(y), 1.0, 252, 20_000, record=tuple(days[1:]), seed=5
+    )
+    logs = np.column_stack([np.zeros(20_000)] + [paths.at(d)[0] for d in days[1:]])
+    hv = realised_variance(logs, days)
+    kvar = h.expected_total_variance(1.0)
+    assert abs(hv.mean() - kvar) < 3 * hv.std() / math.sqrt(hv.size)
+    capped, plain = variance_swap_payoff(hv, kvar, cap=2.5), variance_swap_payoff(hv, kvar)
+    assert np.all(capped <= plain) and np.any(capped < plain)
+    assert np.all(capped <= (2.5**2 - 1) * kvar)
+    with pytest.raises(ValueError):
+        realised_variance(x[:, :3], t[:4])

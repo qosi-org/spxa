@@ -34,6 +34,8 @@ from spxa.vol.conventions import normalised_call_from_total_variance
 from spxa.vol.heston import Heston
 
 __all__ = [
+    "realised_variance",
+    "variance_swap_payoff",
     "ForwardVarianceCurve",
     "variance_swap_curve",
     "vix_index",
@@ -226,3 +228,27 @@ class ForwardVarianceCurve:
 def vix_index(surface: Any, delta: float = 30.0 / 365.0) -> float:
     r"""The model-free VIX of a surface: :math:`100\sqrt{K_{\mathrm{var}}(\Delta)}` with a 30-day window."""
     return 100.0 * math.sqrt(variance_swap_strike(surface, delta))
+
+
+def realised_variance(log_prices: Any, times: Any, demean: bool = False) -> np.ndarray:
+    r"""Annualised realised variance :math:`\frac{1}{T}\sum_i (\log S_{t_i} - \log S_{t_{i-1}})^2`
+    per path. ``log_prices`` has shape ``(n_paths, n_times)``; ``demean`` subtracts the path's
+    mean log return first (with the :math:`n-1` divisor), as some term sheets specify."""
+    x, t = np.atleast_2d(np.asarray(log_prices, float)), np.asarray(times, float)
+    if t.ndim != 1 or t.size != x.shape[1] or t.size < 2 or np.any(np.diff(t) <= 0):
+        raise ValueError("need increasing times matching the columns of log_prices")
+    r = np.diff(x, axis=1)
+    T = t[-1] - t[0]
+    if demean:
+        n = r.shape[1]
+        return np.asarray(((r - r.mean(axis=1, keepdims=True)) ** 2).sum(axis=1) * n / (n - 1) / T)
+    return np.asarray((r * r).sum(axis=1) / T)
+
+
+def variance_swap_payoff(realised: Any, strike: float, cap: float | None = None) -> np.ndarray:
+    r"""Variance swap payoff per unit variance notional, :math:`\min(\sigma^2_R, c^2 K) - K`;
+    ``cap`` is the usual multiple of the volatility strike (2.5 on index swaps)."""
+    rv = np.asarray(realised, float)
+    if cap is not None:
+        rv = np.minimum(rv, cap * cap * strike)
+    return rv - strike

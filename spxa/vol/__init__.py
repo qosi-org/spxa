@@ -124,8 +124,10 @@ from spxa.vol.variance_swaps import (
     gamma_swap_strike,
     heston_integrated_variance_laplace,
     heston_volatility_swap,
+    realised_variance,
     variance_swap_mtm,
     variance_swap_curve,
+    variance_swap_payoff,
     variance_swap_strike,
     vix_index,
 )
@@ -319,6 +321,8 @@ from spxa.vol.wings import (
 )
 
 __all__ = [
+    "realised_variance",
+    "variance_swap_payoff",
     "ForwardVarianceCurve",
     "variance_swap_curve",
     "vix_index",
