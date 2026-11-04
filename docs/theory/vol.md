@@ -1,6 +1,6 @@
 # Implied Volatility Surfaces
 
-`spxa.vol` builds implied-volatility surfaces that are free of static arbitrage. This chapter covers the parametric layer: SVI slices, the SSVI and eSSVI surfaces, their calibration, interpolation in time, and the risk-neutral distributions they imply. Option formulas, implied-volatility inversion and quote handling come from [Market conventions](market.md).
+`spxa.vol` builds implied-volatility surfaces that are free of static arbitrage. This chapter covers the parametric layer (SVI slices, the SSVI and eSSVI surfaces, their calibration, interpolation in time, and the risk-neutral distributions they imply), and then the surface object built on it from option quotes. Option formulas, implied-volatility inversion and quote handling come from [Market conventions](market.md).
 
 | Object | Implementation |
 | :--- | :--- |
@@ -10,6 +10,11 @@
 | Calibration | `calibrate_svi`, `calibrate_svi_butterfly_free`, `calibrate_svi_surface`, `calibrate_ssvi`, `calibrate_essvi` |
 | Diagnostics | `durrleman_g`, `check_butterfly`, `check_calendar`, `wing_asymptotics`, `rogers_tehranchi_slope` |
 | Interpolation and densities | `PriceInterpolatedSurface`, `ImpliedDistribution`, `risk_neutral_density` |
+| Surface objects | `VolSurface`, `ForwardTermStructure`, `VarianceInterpolatedSurface` |
+| Building from quotes | `build_vol_surface`, `SurfaceBuild`, `SurfaceQuality`, `chain_total_variance` |
+| Price-level repair and smoothing | `repair_call_prices`, `call_arbitrage_constraints`, `fengler_smooth`, `fengler_surface` |
+| Delta conventions | `black_delta`, `strike_from_delta`, `atm_dns_strike` |
+| Risk and persistence | `parallel_bump`, `skew_bump`, `expiry_buckets`, `bucketed_vega`, `dumps`, `loads` |
 
 ---
 
@@ -125,3 +130,81 @@ $$
 $$
 
 Together with the density of §1, this is exact in $w$, $w'$ and $w''$. Moments, the forward ratio $E[e^X]$, call repricing, quantiles and inverse-transform samples are built on top. The integration range is widened until the exact tail mass beyond it is below $10^{-17}$. For an arbitrage-free slice the tests find unit mass and $E[e^X] = 1$ to $10^{-11}$, and they reprice calls by quadrature to the same accuracy. A slice with butterfly arbitrage shows up as a cdf that decreases somewhere; quantiles and samples refuse such slices.
+
+---
+
+## 6. Surfaces from option quotes
+
+### 6.1 Forwards and quotes
+
+`build_vol_surface` takes bid/ask chains, one per expiry, and fits a surface in four steps:
+
+1. **Forward and discount factor.** Each expiry's forward $F_i$ and discount factor $D_i$ come from the chain if set. Otherwise they are implied from put-call parity, $C - P = D(F - K)$, by a robust line fit across strikes.
+2. **Term structure.** `ForwardTermStructure` interpolates $\log F$ and $\log D$ linearly in $t$ between expiries, which means constant carry and flat discount forwards. It starts from $(0, \log S)$ when the spot is known.
+3. **Total variances.** `chain_total_variance` converts the out-of-the-money mids to $(k, w)$ pairs and drops quotes that break the price bounds. Weights are uniform, by vega, or from the bid-ask spread.
+4. **Fit.** The pairs are fitted with calendar-free SVI (§4), eSSVI or SSVI (§3).
+
+The result is a `SurfaceBuild` holding a `VolSurface` and the fitted data. `SurfaceBuild.quality()` reports the following per expiry, together with a calendar check across expiries:
+
+- the RMSE and largest implied-volatility error;
+- ATM volatility and skew;
+- the minimum of Durrleman's $g$ (§1).
+
+### 6.2 Repairing prices
+
+Some quotes cannot be fitted without arbitrage at all. Cohen, Reisinger & Wang (2020) work in normalised units $c = C/(DF)$ and $\kappa = K/F$. A grid then extends to an arbitrage-free surface, linear in $\kappa$ between quotes, exactly when four conditions hold:
+
+- $(1 - \kappa)^+ \le c \le 1$;
+- slopes lie in $[-1, 0]$, with $c(0) = 1$;
+- slopes are non-decreasing (no butterfly arbitrage);
+- $c$ is non-decreasing in $T$ at every strike of either slice inside both ranges.
+
+All four conditions are linear in the prices. `repair_call_prices` therefore finds the smallest weighted $\ell^1$ change with a linear programme, and moves that stay inside the bid-ask spread can be made free. For $F = 100$, $D = 1$ and calls 13, 8 and 2 at strikes 90, 100 and 110, the slopes $-0.5$ and $-0.6$ break convexity. The cheapest repair lowers the middle price to 7.5, an $\ell^1$ change of $0.005$ in normalised units.
+
+### 6.3 Smoothing prices
+
+Fengler (2009) fits a natural cubic spline $g(\kappa)$ to normalised call prices by quadratic programming:
+
+$$
+\min_{g,\,\gamma}\ \sum_i w_i\bigl(y_i - g(u_i)\bigr)^2 + \lambda\,\gamma^\top R\,\gamma,
+$$
+
+Here $\gamma = g''$ at the knots, so $\gamma \ge 0$ makes $g$ convex. The spline must also satisfy $(1 - u)^+ \le g \le 1$. `fengler_surface` fits the longest expiry first and each shorter one under $g_{T_1} \le g_{T_2}$. Imposing this only at the knots leaves violations of about $10^{-6}$ between them. Instead, each spline piece is written in Bernstein form on the union of both knot sets, halved, and every Bernstein coefficient of the difference is constrained. The difference then stays non-negative to below $10^{-12}$ everywhere on the overlap.
+
+---
+
+## 7. The surface object
+
+### 7.1 Strikes, volatilities and time interpolation
+
+`VolSurface(model, forward)` combines a total-variance model with a forward curve. It works in strikes: prices, implied volatilities, deltas and the smile at each expiry, all broadcasting $K$ against $T$. The forward variance between two expiries at fixed $k$ is $\bigl(w(k, T_2) - w(k, T_1)\bigr)/(T_2 - T_1)$. It is non-negative for every $k$ exactly when there is no calendar arbitrage, and `forward_vol` raises otherwise.
+
+`VolSurface.from_slices` interpolates between fitted slices, in one of three ways:
+
+| Mode | Interpolates | Guarantee |
+| :--- | :--- | :--- |
+| `price` (default) | $c(k, t)$, by §4 | no static arbitrage if the slices have none |
+| `fixed_k` | $w(k, t)$ linearly in $t$ at fixed $k$ | no calendar arbitrage if the slices are ordered |
+| `normalised` | $w/\theta_t$ at fixed $x = k/\sqrt{\theta_t}$, with $\theta_t$ linear | exact for SSVI with $\varphi(\theta)\sqrt\theta$ constant |
+
+Only the variance modes extrapolate beyond the last expiry. In the normalised mode $w_i(x\sqrt{\theta_i})/\theta_i$ is the same function of $x$ on every slice of such an SSVI surface. The interpolation then returns the SSVI surface itself at every intermediate $\theta_t$.
+
+### 7.2 Delta conventions
+
+The Black forward delta of a call is $N(d_1)$, and with premium adjustment it is $(K/F)N(d_2)$. `strike_from_delta` inverts either convention at the slice's own volatility. The premium-adjusted call delta is not monotone in $K$, so it is inverted on the branch above its maximum. The ATM delta-neutral straddle strike solves call delta + put delta $= 0$. At a fixed volatility this is $Fe^{w/2}$, or $Fe^{-w/2}$ with premium adjustment. For $F = 100$, $\sigma = 20\%$ and $T = 1$ these are 102.0201 and 98.0199, and the 25-delta call strike is $F\exp\bigl(\sigma N^{-1}(0.75) + w/2\bigr) = 116.7539$.
+
+Under a smile, the forward delta depends on how $\sigma$ moves with the forward. Sticky strike keeps Black's delta. Sticky moneyness, $\sigma = \sigma(\log(K/F))$, gives $\Delta = \Delta_{BS} - \mathcal V_{BS}\,\sigma_k/F$. Under a negative skew this sticky-moneyness delta is the larger of the two.
+
+### 7.3 Bumps and bucketed vega
+
+A bump adds $\delta(k, T)$ to the implied volatility at fixed log-moneyness, $w' = (\sigma + \delta)^2T$. There are three shapes:
+
+- `parallel_bump` is $\delta = s$;
+- `skew_bump` is $\delta = sk$, which raises the ATM skew by exactly $s$;
+- `expiry_buckets` are triangular hats in $T$ on pillar expiries that sum to one. A book at 0.75 years with pillars at 0.5 and 1 year therefore splits its vega equally between them.
+
+`bucketed_vega` reprices any function of a surface under central bumps. The bucketed vegas add up to the parallel vega to first order.
+
+### 7.4 Simulation and persistence
+
+`VolSurface.terminal_distribution(T)` is the implied law of $\log(S_T/F_T)$ (§5), and `sample_terminal` draws $S_T$ by inverse transform. Monte Carlo then reprices the forward, calls and digitals to within four standard errors, which checks the surface end to end. `dumps` and `loads` serialise surfaces, models, forwards and curves to JSON, with a type tag on each object. The round trip is bit-exact, because JSON writes each float as the shortest decimal that reads back to it.
