@@ -93,7 +93,15 @@ Lifted Heston
     :class:`LiftedHeston`: multi-factor Markovian approximation of rough Heston.
 Rough Heston calibration
     :func:`calibrate_rough_heston`: least squares on implied volatilities.
+Rough Bergomi
+    :func:`rbergomi_paths`: hybrid-scheme simulation with conditional pricing.
 """
+
+from spxa.vol.rbergomi import (
+    RBergomiPaths,
+    hybrid_weights,
+    rbergomi_paths,
+)
 
 from spxa.vol.rough_calibration import (
     RoughHestonFit,
@@ -366,4 +374,7 @@ __all__ = [
     "lifted_weights",
     "RoughHestonFit",
     "calibrate_rough_heston",
+    "RBergomiPaths",
+    "hybrid_weights",
+    "rbergomi_paths",
 ]
