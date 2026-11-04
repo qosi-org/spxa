@@ -126,7 +126,11 @@ Cheyette Monte Carlo
     :func:`cheyette_paths`: frozen-coefficient exact stepping of the Cheyette states.
 Cheyette swaptions
     :func:`cheyette_swaption`: displaced-diffusion projection with Piterbarg's skew averaging.
+Cheyette calibration
+    :func:`calibrate_cheyette`: piecewise levels and a global skew fitted to swaption smiles.
 """
+
+from spxa.rates.cheyette_calibration import CheyetteCalibration, calibrate_cheyette
 
 from spxa.rates.cheyette_swaption import DisplacedSwapRate, cheyette_swaption, swap_rate_dynamics
 
@@ -514,4 +518,6 @@ __all__ = [
     "DisplacedSwapRate",
     "cheyette_swaption",
     "swap_rate_dynamics",
+    "CheyetteCalibration",
+    "calibrate_cheyette",
 ]
