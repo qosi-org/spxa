@@ -96,3 +96,26 @@ def test_barrier_model_risk_by_the_slv_pde() -> None:
     # charging calibration error shrinks the up-and-out interval monotonically
     widths = [float(mr.penalised_width(lam)[2]) for lam in (0.0, 300.0, 1000.0, 3000.0)]
     assert all(b < a for a, b in zip(widths, widths[1:]))
+
+
+def test_variance_swaps_are_model_free_volatility_swaps_are_not() -> None:
+    lv = v.as_local_vol(SURFACE, 1.0)
+    days = np.linspace(0.0, 1.0, 253)
+    samples = {}
+    for eta in ETAS:
+        m = v.calibrate_slv(lv, HESTON, eta, 1.0, n_time=50, record=(1.0,))
+        p = m.paths(1.0, 252, 20_000, record=tuple(days[1:]), seed=9)
+        logs = np.column_stack([np.zeros(20_000)] + [p.at(d)[0] for d in days[1:]])
+        samples[f"eta={eta}"] = (v.realised_variance(logs, days),)
+    kvar = v.variance_swap_strike(SURFACE, 1.0)
+    var = v.ModelRisk.from_samples(samples, lambda rv: rv)
+    vol = v.ModelRisk.from_samples(samples, np.sqrt)
+    # replication fixes the variance swap: every model prices it at K_var
+    assert not var.significant()
+    assert np.all(np.abs(var.prices - kvar) < 3 * var.std_errors)
+    # the volatility swap depends on the vol of variance: local vol (the least) is highest
+    assert vol.significant()
+    assert np.all(vol.prices < np.sqrt(kvar))
+    order = [vol.names.index(f"eta={e}") for e in ETAS]
+    assert np.all(np.diff(vol.prices[order]) < 0)
+    assert round(float(vol.width()), 3) == 0.008
