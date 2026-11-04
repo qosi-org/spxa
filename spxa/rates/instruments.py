@@ -24,7 +24,7 @@ from typing import Optional
 
 from spxa.market.calendars import get_calendar
 from spxa.market.curves import YieldCurve
-from spxa.market.dates import DateLike, add_tenor
+from spxa.market.dates import DateLike, add_tenor, to_date
 from spxa.market.daycount import DayCount
 from spxa.market.schedule import CalendarLike, adjust
 from spxa.rates.indices import FixingHistory, IborIndex
@@ -82,6 +82,49 @@ class Deposit:
         """Deposit starting ``spot_lag`` business days after ``trade_date``."""
         start, end = _spot_and_end(trade_date, tenor, calendar, spot_lag, convention, end_of_month)
         return cls(start, end, rate, day_count, notional)
+
+    @classmethod
+    def overnight(
+        cls,
+        trade_date: DateLike,
+        rate: float,
+        calendar: CalendarLike = "TARGET",
+        day_count: str = "ACT/360",
+        notional: float = 1.0,
+    ) -> "Deposit":
+        """Overnight (O/N): from the trade date to the next business day."""
+        cal = get_calendar(calendar)
+        start = cal.next_business_day(to_date(trade_date))
+        return cls(start, cal.add_business_days(start, 1), rate, day_count, notional)
+
+    @classmethod
+    def tom_next(
+        cls,
+        trade_date: DateLike,
+        rate: float,
+        calendar: CalendarLike = "TARGET",
+        day_count: str = "ACT/360",
+        notional: float = 1.0,
+    ) -> "Deposit":
+        """Tom/next (T/N): from one to two business days after the trade date."""
+        cal = get_calendar(calendar)
+        start = cal.add_business_days(cal.next_business_day(to_date(trade_date)), 1)
+        return cls(start, cal.add_business_days(start, 1), rate, day_count, notional)
+
+    @classmethod
+    def spot_next(
+        cls,
+        trade_date: DateLike,
+        rate: float,
+        calendar: CalendarLike = "TARGET",
+        spot_lag: int = 2,
+        day_count: str = "ACT/360",
+        notional: float = 1.0,
+    ) -> "Deposit":
+        """Spot/next (S/N): from spot to the business day after."""
+        cal = get_calendar(calendar)
+        start = cal.add_business_days(cal.next_business_day(to_date(trade_date)), spot_lag)
+        return cls(start, cal.add_business_days(start, 1), rate, day_count, notional)
 
     @property
     def accrual(self) -> float:
