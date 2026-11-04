@@ -91,7 +91,14 @@ Rough Heston
     :class:`RoughHeston`: fractional Riccati characteristic function.
 Lifted Heston
     :class:`LiftedHeston`: multi-factor Markovian approximation of rough Heston.
+Rough Heston calibration
+    :func:`calibrate_rough_heston`: least squares on implied volatilities.
 """
+
+from spxa.vol.rough_calibration import (
+    RoughHestonFit,
+    calibrate_rough_heston,
+)
 
 from spxa.vol.lifted_heston import (
     LiftedHeston,
@@ -357,4 +364,6 @@ __all__ = [
     "fractional_riccati",
     "LiftedHeston",
     "lifted_weights",
+    "RoughHestonFit",
+    "calibrate_rough_heston",
 ]
