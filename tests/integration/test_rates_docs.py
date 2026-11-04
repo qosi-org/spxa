@@ -7,6 +7,7 @@ import math
 import re
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import spxa.rates as r
@@ -44,6 +45,11 @@ def test_doc_mentions_the_checked_numbers() -> None:
         "5.208 \\times 10^{-7}",
         "362/360",
         "91/360",
+        "0.05010625",
+        "30/10 = 3",
+        "$3/360$",
+        "31 December 2024 to 2 January 2025",
+        "30 December 2022 to 2 January 2023",
     ):
         assert s in text, s
 
@@ -194,3 +200,95 @@ class TestBond:
         ref = 2.5 * (1 - (1 + y / 2) ** -n) / (y / 2) + 100 * (1 + y / 2) ** -n
         assert self.bond.dirty_price(y, "2024-01-15") == pytest.approx(ref, rel=1e-14)
         assert math.isfinite(ref)
+
+
+HUMP_T = [0.1, 1.0, 4.0, 9.0, 20.0, 30.0]
+HUMP_R = [0.081, 0.07, 0.044, 0.07, 0.04, 0.03]
+
+
+class TestCurveConstruction:
+    def test_monotone_convex_reference_and_averages(self) -> None:
+        t = [1.0, 2.0, 3.0, 4.0, 5.0]
+        c = r.PiecewiseCurve.from_zero_rates(
+            t, [0.0275, 0.04, 0.0475, 0.05, 0.0475], r.MonotoneConvex()
+        )
+        f = c.instantaneous_forward([0.3, 1.3, 2.1, 4.5])
+        assert list(f) == pytest.approx([0.0229375, 0.05010625, 0.0609, 0.03625], abs=1e-15)
+        # each discrete forward is the average of f over its interval
+        x = -np.log(c.discount([0.0] + t))
+        for a, b, xa, xb in zip([0.0] + t, t, x, x[1:]):
+            g = np.linspace(a, b, 20001)
+            avg = float(np.trapezoid(c.instantaneous_forward(g), g)) / (b - a)
+            assert avg == pytest.approx((xb - xa) / (b - a), abs=1e-10)
+
+    def test_scheme_comparison(self) -> None:
+        schemes = [r.LogLinearDiscount(), r.LinearZero(), r.CubicZero(), r.CubicSplineRT()]
+        schemes += [r.MonotoneCubicRT(), r.MonotoneConvex()]
+        rows = r.compare_schemes(HUMP_T, HUMP_R, schemes)
+        d = {row.scheme.split("(")[0]: row for row in rows}
+        assert d["LinearZero"].min_forward < 0 and d["CubicZero"].min_forward < 0
+        assert d["MonotoneConvex"].min_forward > 0
+        assert d["LogLinearDiscount"].min_forward == pytest.approx(
+            (0.03 * 30 - 0.04 * 20) / 10, abs=1e-15
+        )
+        assert d["LogLinearDiscount"].sensitivity == pytest.approx(30 / 10, abs=1e-12)
+        assert d["CubicSplineRT"].locality == 6 and d["CubicZero"].locality == 5
+        assert d["MonotoneCubicRT"].locality <= 2 and d["MonotoneConvex"].locality <= 2
+
+    def test_log_linear_bump_formula(self) -> None:
+        t, rates = np.array(HUMP_T), np.array(HUMP_R)
+        base = r.PiecewiseCurve.from_zero_rates(t, rates, r.LogLinearDiscount())
+        j, h = 3, 1e-6
+        bumped = r.PiecewiseCurve.from_zero_rates(
+            t, rates + h * (np.arange(6) == j), r.LogLinearDiscount()
+        )
+        mid_left, mid_right = 0.5 * (t[j - 1] + t[j]), 0.5 * (t[j] + t[j + 1])
+        dl = (bumped.instantaneous_forward(mid_left) - base.instantaneous_forward(mid_left)) / h
+        dr = (bumped.instantaneous_forward(mid_right) - base.instantaneous_forward(mid_right)) / h
+        assert dl == pytest.approx(t[j] / (t[j] - t[j - 1]), rel=1e-6)
+        assert dr == pytest.approx(-t[j] / (t[j + 1] - t[j]), rel=1e-6)
+
+    def test_front_end_stubs(self) -> None:
+        on = r.Deposit.overnight("2024-03-08", 0.039)
+        tn = r.Deposit.tom_next("2024-03-08", 0.0391)
+        assert (on.start, on.end) == (D(2024, 3, 8), D(2024, 3, 11))
+        assert on.accrual == pytest.approx(3 / 360, abs=1e-16)
+        res = r.bootstrap_curve(
+            [r.DepositHelper(on, 0.039), r.DepositHelper(tn, 0.0391)], "2024-03-08"
+        )
+        p_spot = res.curve.discount(res.curve.time(tn.end))
+        expected = 1 / ((1 + on.accrual * 0.039) * (1 + tn.accrual * 0.0391))
+        assert p_spot == pytest.approx(expected, rel=1e-13)
+
+    def test_turns(self) -> None:
+        a = r.turn_of_year(2024, 0.002)
+        b = r.turn_of_year(2022, 0.002)
+        assert (a.start, a.end) == (D(2024, 12, 31), D(2025, 1, 2))
+        assert (b.start, b.end) == (D(2022, 12, 30), D(2023, 1, 2))
+        assert D(2022, 12, 31).weekday() == 5
+        base = FlatCurve(0.03, reference_date="2024-06-28", day_count="ACT/365F")
+        adj = r.SpreadAdjustedCurve(base, [a])
+        ta, tb = base.time(a.start), base.time(a.end)
+        for t in (0.25, 0.5, ta + 0.5 * (tb - ta), 1.0):
+            overlap = max(0.0, min(t, tb) - ta)
+            assert adj.discount(t) == pytest.approx(
+                base.discount(t) * math.exp(-0.002 * overlap), rel=1e-14
+            )
+
+    def test_nss_limits(self) -> None:
+        c = r.NelsonSiegelSvensson(0.042, 0.01, -0.012, 0.008, 1.2, 9.0)
+        assert c.instantaneous_forward(0.0) == pytest.approx(0.052, abs=1e-15)
+        assert c.zero(1e-9) == pytest.approx(0.052, abs=1e-9)
+        assert c.zero(1e5) == pytest.approx(0.042, abs=1e-5)
+
+    def test_unidentified_meeting_period_raises(self) -> None:
+        dep = r.Deposit.from_tenor("2024-01-15", "1M", 0.053)
+        with pytest.raises(ValueError):
+            r.meeting_date_curve(
+                [
+                    r.DepositHelper(dep, 0.053),
+                    r.DepositHelper(r.Deposit.from_tenor("2024-01-15", "2M", 0.053), 0.053),
+                ],
+                "2024-01-15",
+                ["2024-01-31", "2024-01-31", "2024-02-05", "2024-02-06"],
+            )

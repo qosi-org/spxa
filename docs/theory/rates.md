@@ -184,7 +184,7 @@ Monotone convex reproduces each discrete forward $f^d_i = (x_i - x_{i-1})/(t_i -
 - `LinearZero` and `CubicZero` produce negative forwards, while `MonotoneConvex` stays positive.
 - `LogLinearDiscount` has minimum forward $(0.03 \cdot 30 - 0.04 \cdot 20)/10 = 0.01$.
 - A bump to $r_j$ moves the log-linear flat forward on $(t_{j-1}, t_j)$ by $t_j/(t_j - t_{j-1})$ per unit, and on $(t_j, t_{j+1})$ by $-t_j/(t_{j+1} - t_j)$. Its largest sensitivity is therefore $30/10 = 3$, reached at the last node.
-- The natural splines spread a single bump over every interval.
+- The natural splines spread a single bump across the curve. One bump can move the `CubicSplineRT` forward on all six intervals and the `CubicZero` forward on five, against at most two for the monotone schemes.
 
 ### 6.2 Helpers and the bootstrap
 
