@@ -180,6 +180,8 @@ the running library. All signatures are exact.
    - [Cashflows, Legs & Pricing](#cashflows-legs-pricing)
    - [Money Market & Futures](#money-market-futures)
    - [Swaps & Bonds](#swaps-bonds)
+   - [Curve Construction](#curve-construction)
+   - [Turns, Meetings, Parametric Curves & Curve Sets](#turns-meetings-parametric-curves-curve-sets)
 22. [Implied Volatility Surfaces (`spxa.vol`)](#implied-volatility-surfaces-spxavol)
    - [Coordinates & SVI Slices](#coordinates-svi-slices)
    - [SSVI & eSSVI](#ssvi-essvi)
@@ -5139,6 +5141,21 @@ Interest-rate instruments on real calendar dates, priced on separate discount an
 - `ois_swap(trade_date, tenor, fixed_rate, index=SOFR, notional=1.0, payer=True, frequency="1Y", payment_lag=2, spot_lag=2, fixed_day_count=None, forward_start=None, spread=0.0)` and `vanilla_swap(trade_date, tenor, fixed_rate, index=EURIBOR6M, notional=1.0, payer=True, fixed_tenor="1Y", fixed_day_count="30/360", float_tenor=None, spot_lag=None, forward_start=None, spread=0.0, use_index_dates=True)`. `notional` may be a number, one value per period, or a function of the accrual start such as `step_notional(dates, values)` or `linear_notional(start, end, initial, final=0.0)`.
 - `BasisSwap(first, second)` with `leg_pvs`, `pv` and `par_spread`; `basis_swap(trade_date, tenor, first, second, spread=0.0, notional=1.0, first_tenor=None, second_tenor=None, spot_lag=2, payment_lag=0, forward_start=None, use_index_dates=True)` (spread on the first leg).
 - `FixedRateBond(effective, maturity, coupon, frequency="6M", day_count="ACT/ACT ICMA", calendar="US-SIFMA", settlement_days=1, face=100.0, first_coupon=None)`: `cashflows()` (`BondCashflow` rows), `settlement_date(trade_date)`, `accrued_interest(settle)`, `dirty_price(y, settle)`, `clean_price(y, settle)`, `yield_from_clean(clean, settle)`, `macaulay_duration`, `modified_duration`, `convexity`, `dirty_price_from_curve(curve, settle, z_spread=0.0)` and `z_spread(clean, curve, settle)`.
+
+- Front-end stubs: `Deposit.overnight(trade_date, rate, calendar="TARGET", day_count="ACT/360", notional=1.0)`, `Deposit.tom_next(...)` and `Deposit.spot_next(...)`.
+
+### Curve Construction
+- `PiecewiseCurve(times, discounts, scheme=LogLinearDiscount(), reference_date=None, day_count="ACT/365F")` and `PiecewiseCurve.from_zero_rates(times, rates, scheme, ...)`: `discount`, `zero_rate`, `forward_rate`, `instantaneous_forward` (analytic), `node_times`, `node_discounts`, `node_zero_rates`, `with_discounts`, `shifted`. Schemes: `LogLinearDiscount()`, `LinearZero()`, `CubicZero(bc="natural")` (`bc` is a SciPy `CubicSpline` boundary condition), `CubicSplineRT()`, `MonotoneCubicRT()` and `MonotoneConvex(positivity=False)` (Hagan–West).
+- Helpers, each with `quote`, `pillar`, `curves`, `implied_quote(curves)` and `residual(curves)`: `DepositHelper(deposit, quote, curve="discount")`, `FRAHelper(fra, quote, curve)`, `FutureHelper(future, quote, curve, a=0.0, sigma=0.0)` (Hull–White convexity; `quarterly_futures(reference_date, prices, index=SOFR, ...)` builds a strip), `SwapHelper(swap, quote, discount="discount", forward=None)`, `BasisSwapHelper(swap, quote, first, second, discount="discount")` and `BondHelper(bond, quote, settle, curve="discount", quote_type="clean"|"yield")`.
+- `bootstrap_curve(helpers, reference_date, scheme=None, name="discount", known=None, day_count="ACT/365F", max_passes=None, tol=1e-13, spreads=())` returns a `BootstrapResult` (`curve`, `base`, `curves`, `max_residual`, `node_values`, `jacobian(bump=1e-7)`, `node_sensitivities(bump=1e-7)`).
+- `fit_curves([CurveSpec(name, helpers, scheme, spreads), ...], reference_date, known=None, tol=1e-14, max_iter=30, bump=1e-7)` solves several curves simultaneously by Newton's method and returns a `GlobalFitResult` (`curves`, `helpers`, `residuals`, `max_residual`, `iterations`, `jacobian`, `nodes`).
+- Diagnostics: `compare_schemes(times, rates, schemes)` returns one `SchemeDiagnostics` (`scheme`, `min_forward`, `roughness`, `locality`, `sensitivity`) per scheme; `bump_locality(times, rates, scheme, bump=1e-4)` and `forward_roughness(curve, t_max, points=20001, t_min=0.0)`.
+
+### Turns, Meetings, Parametric Curves & Curve Sets
+- `ForwardSpread(start, end, spread)`, `turn_of_year(year, spread, calendar="TARGET")` and `SpreadAdjustedCurve(base, spreads)`; pass `spreads=` to `bootstrap_curve` or `CurveSpec` to fit the base curve under known turns.
+- `flat_forward_curve(reference_date, dates, rates)` (piecewise-flat forwards stepping on `dates`) and `meeting_date_curve(helpers, reference_date, step_dates, known=None, weights=None)` returning a `MeetingCurveResult` (exact or Gauss–Newton least squares).
+- `NelsonSiegelSvensson(beta0, beta1, beta2, beta3=0.0, tau1=1.0, tau2=None, reference_date=None)` (`zero`, `instantaneous_forward`, `params`, `is_svensson`) and `nelson_siegel(beta0, beta1, beta2, tau)`; `fit_nss_zero_rates(times, zero_rates, weights=None, svensson=True, tau_bounds=(0.05, 30.0))` (variable projection) and `fit_nss(helpers, reference_date, svensson=True, known=None, weights=None)`, both returning an `NSSFit`.
+- `CurveSet(curves, discount, projections=None, fixings=None)`: `discount_curve`, `projection(index)`, `projection_name`, `get`, `with_curve`, `bumped(shift, names=None)`, `pv(instrument, valuation_date=None)` and `CurveSet.from_fit(result, discount, projections)`.
 
 ## Implied Volatility Surfaces (`spxa.vol`)
 
