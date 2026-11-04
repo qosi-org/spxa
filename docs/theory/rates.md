@@ -32,6 +32,7 @@
 | Cheyette | `Cheyette`, `cheyette_paths`, `CheyettePDE`, `cheyette_swaption`, `swap_rate_dynamics`, `calibrate_cheyette` |
 | LIBOR market model | `LiborMarketModel`, `AbcdVol`, `exponential_correlation`, `rebonato_correlation`, `reduce_rank`, `lmm_paths`, `LMMPaths`, `calibrate_lmm`, `fit_abcd`, `LMMCalibration` |
 | Forward market model and SABR-LMM | `ForwardMarketModel`, `fmm_paths`, `FMMPaths`, `SABRLMM`, `sabr_lmm_paths` |
+| Bermudan swaptions | `BermudanSwaption`, `bermudan_swaption`, `bermudan_from_times`, `coterminal_swaptions`, `bermudan_pde`, `bermudan_tree` |
 
 ---
 
@@ -444,3 +445,11 @@ dL_i = \alpha_i V_t (L_i + \delta)^\beta\,dW_i, \qquad dV_t = \nu V_t\,dZ_t, \qq
 $$
 
 Under its own measure each forward is SABR with parameters $(\alpha_i, \beta, \rho, \nu)$, up to a drift on $V$ from the change of measure. That drift is zero for the first forward. Caplets are therefore priced by Hagan's formula, and `sabr_lmm_paths` reproduces the smile within Monte Carlo error. The paths use Euler steps with absorption for the forwards and exact lognormal steps for $V$. Because the volatility factor is shared, swaptions inherit a consistent smile instead of being fitted one by one.
+
+## 12. Bermudan swaptions
+
+### 12.1 The contract and lattice engines
+
+A Bermudan swaption can be exercised on any of the dates $t_1 < \dots < t_m$. Exercising at $t_k$ enters the remaining co-terminal swap, so the exercise value is $g_k = (\sum_i a^{(k)}_i P(t_k, t_i))^+$, where $a^{(k)}$ are that swap's model cashflows. Its value $\sup_\tau E[D(\tau)g_\tau]$ lies above every co-terminal European and below their sum. `bermudan_swaption` builds the contract from a `Swap`, with exercise on the fixing date of each fixed period start after a lockout. `coterminal_swaptions` returns the matching Europeans with identical dates and underlyings, which is the natural calibration set. On a lattice the value is the dynamic programme $V(t_k) = \max(g_k, E_{t_k}[D(t_k, t_{k+1})V(t_{k+1})])$.
+
+`bermudan_pde` solves it on `HullWhitePDE` or `CheyettePDE`, with the exercise dates inserted into the time grid. `bermudan_tree` uses the Hull–White trinomial tree, mapping node rates to the model state by $x = r - \varphi(t)$. Take a 1Y×5Y payer at 3.5% on 10,000 notional in Hull–White with $a = 0.05$ and $\sigma = 1\%$ (3% discounting, 3.4% projection), exercisable annually. The PDE gives $224.98$, against co-terminal Europeans of $149.17$, $168.83$, $153.91$, $116.67$ and $64.60$. With $\beta = 0.3$ and the same volatility level, Cheyette gives $223.29$.

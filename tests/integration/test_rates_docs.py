@@ -566,3 +566,29 @@ class TestMarketModels:
         assert fmm.caplet_variance(6) == pytest.approx(0.04 * (4.0 + 0.5 / 3), rel=1e-13)
         assert round(fmm.caplet_vol(6) * 100, 2) == 19.25
         assert fmm.caplet(6, 0.03) > lmm.caplet(6, 0.03)
+
+
+class TestBermudans:
+    REF = D(2024, 3, 15)
+    DISC = FlatCurve(0.03, reference_date=D(2024, 3, 15))
+    PROJ = FlatCurve(0.034, reference_date=D(2024, 3, 15))
+
+    def bermudan(self) -> r.BermudanSwaption:
+        sw = r.swaption(self.REF, "1Y", "5Y", 0.035, notional=1e4)
+        return r.bermudan_swaption(sw.swap, self.DISC, self.PROJ, lockout=0)
+
+    def test_lattice_numbers(self) -> None:
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "The PDE gives $224.98$",
+            "$149.17$, $168.83$, $153.91$, $116.67$ and $64.60$",
+            "Cheyette gives $223.29$",
+        ):
+            assert s in text, s
+        ber = self.bermudan()
+        pde = r.HullWhitePDE(r.HullWhite(self.DISC, 0.05, 0.01), 401, 400)
+        assert round(r.bermudan_pde(pde, ber), 2) == 224.98
+        eu = [round(r.bermudan_pde(pde, ber.restrict([k])), 2) for k in range(5)]
+        assert eu == [149.17, 168.83, 153.91, 116.67, 64.60]
+        chey = r.CheyettePDE(r.Cheyette(self.DISC, 0.05, 0.01, beta=0.3), 161, 41, 200)
+        assert round(r.bermudan_pde(chey, ber), 2) == 223.29
