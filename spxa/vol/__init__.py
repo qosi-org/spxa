@@ -42,6 +42,9 @@ Deltas
     :func:`black_delta` (forward/spot, premium-adjusted),
     :func:`strike_from_delta` and :func:`atm_dns_strike`, also as
     :meth:`VolSurface.delta` and :meth:`VolSurface.strike_from_delta`.
+Bumps
+    :meth:`VolSurface.bumped` with :func:`parallel_bump`, :func:`skew_bump`
+    and :func:`expiry_buckets`; :func:`bucketed_vega`.
 Spline smoothing
     :func:`fengler_smooth` (:class:`FenglerSmile`): Fengler's convex,
     monotone natural cubic call-price spline; :func:`fengler_surface`
@@ -81,6 +84,13 @@ from spxa.vol.conventions import (
     strike_from_log_moneyness,
     total_variance,
     total_variance_from_price,
+)
+from spxa.vol.bumps import (
+    BumpedModel,
+    bucketed_vega,
+    expiry_buckets,
+    parallel_bump,
+    skew_bump,
 )
 from spxa.vol.delta import atm_dns_strike, black_delta, strike_from_delta
 from spxa.vol.fengler import (
@@ -192,4 +202,10 @@ __all__ = [
     "fengler_surface",
     "FenglerSurface",
     "spline_eval_matrix",
+    # bumps
+    "BumpedModel",
+    "parallel_bump",
+    "skew_bump",
+    "expiry_buckets",
+    "bucketed_vega",
 ]

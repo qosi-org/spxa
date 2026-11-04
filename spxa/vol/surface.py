@@ -201,6 +201,17 @@ class VolSurface:
         up, dn = self.implied_vol_k(np.array([h, -h]), T)
         return float((up - dn) / (2 * h))
 
+    # ----------------------------------------------------------------- bumps
+    def bumped(self, bump: Any) -> "VolSurface":
+        """Surface with an implied-vol bump: a number (parallel) or a function ``(k, T) -> dvol``.
+
+        See :mod:`spxa.vol.bumps` for the shapes.
+        """
+        from spxa.vol.bumps import BumpedModel, parallel_bump
+
+        f = parallel_bump(float(bump)) if isinstance(bump, (int, float)) else bump
+        return VolSurface(BumpedModel(self.model, f), self.forward_curve)
+
     # ------------------------------------------------------ forward variance
     def forward_variance(self, T1: float, T2: Any, k: Any = 0.0) -> Any:
         r"""Forward implied variance :math:`(w(k, T_2) - w(k, T_1))/(T_2 - T_1)`.
