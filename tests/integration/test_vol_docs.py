@@ -568,3 +568,25 @@ class TestMartingaleTransport:
             np.cumsum(rng.standard_normal((400_000, 3)) * 0.2 * math.sqrt(0.5) - 0.01, axis=1)
         )
         assert round(float(np.maximum(S.mean(axis=1) - 1.0, 0.0).mean()), 4) == 0.0705
+
+
+class TestVarianceSwaps:
+    SURFACE = v.VolSurface(
+        v.SSVI(-0.7, v.PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t),
+        EquityForward(100.0, 0.03, dividend_yield=0.01),
+    )
+
+    def test_replication_numbers(self) -> None:
+        kvar = v.variance_swap_strike(self.SURFACE, 1.0)
+        kgam = v.gamma_swap_strike(self.SURFACE, 1.0)
+        atm = float(self.SURFACE.total_variance(np.zeros(1), 1.0)[0])
+        assert (round(kvar, 4), round(kgam, 4), round(atm, 3)) == (0.0569, 0.0494, 0.043)
+        assert round(v.vix_index(self.SURFACE), 2) == 21.61
+        text = DOC.read_text(encoding="utf-8")
+        for claim in ("$K_{\\text{var}} = 0.0569$", "$0.0494$", "$21.61$", "$0.2090$", "= 0.2228$"):
+            assert claim in text
+
+    def test_volatility_swap_numbers(self) -> None:
+        h = v.Heston(0.04, 1.5, 0.06, 0.5, -0.7)
+        assert round(v.heston_volatility_swap(h, 1.0), 4) == 0.2090
+        assert round(math.sqrt(h.expected_total_variance(1.0)), 4) == 0.2228

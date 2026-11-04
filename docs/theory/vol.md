@@ -23,6 +23,7 @@
 | Rough Bergomi and VIX | `rbergomi_paths`, `RBergomiPaths`, `calibrate_rbergomi`, `RBergomiVIX`, `HestonVIX`, `VIX_WINDOW`, `calibrate_heston_joint`, `SmileQuote`, `VIXQuote` |
 | Martingale optimal transport | `DiscreteMarginal`, `marginal_from_calls`, `surface_marginals`, `mot_solve`, `mot_bounds`, `ot_solve`, `MOTResult`, `mot_sinkhorn`, `SinkhornResult`, `mot_multi` |
 | Robust pricing | `robust_bounds`, `forward_start_call`, `forward_start_straddle`, `static_replication`, `StaticReplication`, `superhedge_pnl` |
+| Variance and volatility swaps | `fair_variance`, `variance_swap_strike`, `gamma_swap_strike`, `variance_swap_mtm`, `variance_swap_curve`, `ForwardVarianceCurve`, `vix_index`, `heston_volatility_swap`, `heston_integrated_variance_laplace`, `realised_variance`, `variance_swap_payoff` |
 
 ---
 
@@ -378,3 +379,33 @@ The dual potentials live on the grid. `static_replication` writes any grid-piece
 ### 11.5 Several dates
 
 `mot_multi` bounds claims $c(X_1, \dots, X_n)$ over joint laws that are martingales in their own filtration, with one constraint per path prefix. A claim on two consecutive dates has the same bounds as the two-marginal problem, because any coupling extends by a Markov kernel. Intermediate smiles can only tighten a claim on the first and last dates. With flat 20% smiles at $0.5$, $1$ and $1.5$ years, a three-date Asian call on the average of $X_1, X_2, X_3$, struck at the forward, lies in $[0.0634, 0.0778]$, around the Black–Scholes value $0.0705$.
+
+## 12. Variance and volatility swaps
+
+### 12.1 Replication
+
+A variance swap pays the realised variance $\frac1T\int_0^T v_t\,dt$ against a fixed strike. For a continuous price process, Itô's formula applied to $\log S$ turns the integrated variance into a static position in the log contract plus a dynamic forward hedge. Carr–Madan then writes the log contract as a strip of out-of-the-money options with weight $1/K^2$. In log moneyness $k = \log(K/F_T)$ and with undiscounted prices $\mathrm{OTM}(k)$ over the forward, the fair strike is
+
+$$
+K_{\text{var}}\,T = 2\int_{-\infty}^{\infty} \mathrm{OTM}(k)\, e^{-k}\,dk .
+$$
+
+The gamma swap weights realised variance by $S_t/S_0$, and its strike uses the weight $1/K$, which drops the factor $e^{-k}$. `fair_variance` integrates a vectorised OTM pricer by composite Gauss–Legendre quadrature on panels scaled by the at-the-money total volatility. `variance_swap_strike` and `gamma_swap_strike` apply it to a surface. A flat smile returns $\sigma^2$ to $10^{-12}$. Replication on Fourier prices recovers Heston's $E[V]/T$ to $10^{-6}$ and rough Heston's $\frac1T\int_0^T E[v_t]\,dt$ to $2 \times 10^{-5}$. With negative skew, the $1/K^2$ weight loads the expensive puts. On the SSVI surface of §8 at one year, $K_{\text{var}} = 0.0569$, above the gamma swap strike $0.0494$, which is above the at-the-money variance $0.043$. `variance_swap_mtm` values a seasoned swap from realised and remaining fair variance.
+
+### 12.2 Term structure and the VIX
+
+The strikes $K_i$ at expiries $T_i$ fix the integrated forward variance $\int_0^{T_i}\xi_0 = K_i T_i$. `ForwardVarianceCurve` interpolates it with $\xi_0$ flat between expiries and rejects strikes whose total variance falls. It is the input of the forward-variance models in §10. Built from the SSVI surface and passed to rough Bergomi, it reproduces the 30-day strike as $E[\mathrm{VIX}_0^2]$ exactly and the one-year strike as the mean of $\int_0^1 v_t\,dt$ over simulated paths. The VIX index itself is the 30-day replication, $100\sqrt{K_{\text{var}}(30/365)}$. `vix_index` gives $21.61$ on the SSVI surface.
+
+### 12.3 Volatility swaps
+
+A volatility swap pays $\sqrt{V/T}$. Concavity puts its strike below $\sqrt{K_{\text{var}}}$, and the gap depends on the dynamics, not only on the smile. In Heston the Laplace transform of $V = \int_0^T v_t\,dt$ is exponential-affine (the CIR bond-price formula), and
+
+$$
+E\sqrt V = \frac{1}{2\sqrt\pi}\int_0^\infty \frac{1 - E e^{-sV}}{s^{3/2}}\,ds .
+$$
+
+`heston_volatility_swap` evaluates this after substituting $s = u^2$. It writes the transform with $g - \kappa = 2\xi^2 s/(g + \kappa)$, so it stays accurate as $\xi \to 0$, where the strike tends to $\sqrt{E[V]/T}$. For $v_0 = 0.04$, $\kappa = 1.5$, $\theta = 0.06$, $\xi = 0.5$ and $\rho = -0.7$, the one-year volatility swap is $0.2090$ against $\sqrt{K_{\text{var}}} = 0.2228$, and an Euler simulation of $V$ agrees within its standard error.
+
+### 12.4 Discrete monitoring
+
+Term sheets use daily log returns, $\sigma_R^2 = \frac1T\sum_i(\log S_{t_i}/S_{t_{i-1}})^2$, often capped at $2.5^2 K$. `realised_variance` and `variance_swap_payoff` compute these. Under Black–Scholes with step $\Delta t$, the drift of the log return adds a bias, $E[\sigma_R^2] = \sigma^2 + \sigma^4\Delta t/4$. The demeaned convention with divisor $n - 1$ removes it. On daily Heston paths the bias is below the Monte Carlo error, and realised variance prices the swap at $E[V]/T$.
