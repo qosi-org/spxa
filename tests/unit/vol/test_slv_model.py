@@ -38,6 +38,21 @@ def test_mixing_fraction_moves_barriers_not_vanillas() -> None:
     assert p.y.shape == (1, 100)
 
 
+def test_from_a_vol_surface() -> None:
+    from spxa.market import EquityForward
+    from spxa.vol import SSVI, LocalVolGrid, PowerLawPhi, VolSurface
+    from spxa.vol.slv_model import as_local_vol
+
+    ss = SSVI(-0.7, PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t)
+    surf = VolSurface(ss, EquityForward(100.0, 0.03, dividend_yield=0.01))
+    _, lv = _ssvi_local_vol()
+    tab = as_local_vol(surf, 1.0)
+    assert isinstance(tab, LocalVolGrid) and as_local_vol(lv, 1.0) is lv
+    np.testing.assert_allclose(tab.variance, lv.variance, rtol=1e-12)
+    slv = calibrate_slv(surf, H, 0.5, 1.0, n_y=61, n_v=31, n_time=20)
+    assert slv.leverage.values.shape == (20, 61)
+
+
 def test_validation() -> None:
     _, lv = _ssvi_local_vol()
     with pytest.raises(ValueError):

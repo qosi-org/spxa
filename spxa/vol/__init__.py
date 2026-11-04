@@ -89,10 +89,7 @@ SLV models
     :func:`calibrate_slv` and :class:`SLVModel`: mixing-fraction SLV calibrated to a local-vol surface.
 """
 
-from spxa.vol.slv_model import (
-    SLVModel,
-    calibrate_slv,
-)
+from spxa.vol.slv_model import SLVModel, as_local_vol, calibrate_slv
 
 from spxa.vol.slv_pde import SLVPDE
 
@@ -339,4 +336,5 @@ __all__ = [
     "SLVPDE",
     "SLVModel",
     "calibrate_slv",
+    "as_local_vol",
 ]
