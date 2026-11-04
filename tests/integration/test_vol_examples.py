@@ -39,3 +39,15 @@ def test_surface_build_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "E[S_T]/F - 1 within 4 standard errors: True" in out
     assert out.count("within 4 standard errors: True") == 2
     assert "nan" not in out and "False" not in out
+
+
+def test_local_vol_example(capsys: pytest.CaptureFixture[str]) -> None:
+    out = _run("vol_local_vol_example.py", capsys)
+    assert "downside local vol above upside: True" in out
+    assert "worst error 0.42 bp of vol at T=0.25, K=80" in out
+    assert "local vol defined everywhere: True" in out
+    assert "Monte Carlo calls within 4 standard errors of the surface: True" in out
+    assert "density mass 1.00000000, E[S/F] 1.000000" in out
+    assert "American 7.3705, European 7.1989" in out
+    assert "= vanilla 9.1594: True" in out
+    assert "nan" not in out and "False" not in out
