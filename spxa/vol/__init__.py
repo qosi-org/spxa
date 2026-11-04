@@ -89,9 +89,17 @@ SLV models
     :func:`calibrate_slv` and :class:`SLVModel`: mixing-fraction SLV calibrated to a local-vol surface.
 Rough Heston
     :class:`RoughHeston`: fractional Riccati characteristic function.
+Lifted Heston
+    :class:`LiftedHeston`: multi-factor Markovian approximation of rough Heston.
 """
 
+from spxa.vol.lifted_heston import (
+    LiftedHeston,
+    lifted_weights,
+)
+
 from spxa.vol.rough_heston import (
+    FourierPricing,
     RoughHeston,
     fractional_riccati,
 )
@@ -345,5 +353,8 @@ __all__ = [
     "calibrate_slv",
     "as_local_vol",
     "RoughHeston",
+    "FourierPricing",
     "fractional_riccati",
+    "LiftedHeston",
+    "lifted_weights",
 ]

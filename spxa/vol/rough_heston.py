@@ -37,7 +37,7 @@ from scipy.special import gamma
 
 from spxa.market.implied import implied_black_volatility
 
-__all__ = ["RoughHeston", "fractional_riccati"]
+__all__ = ["FourierPricing", "RoughHeston", "fractional_riccati"]
 
 
 def _rhs(u: np.ndarray, h: np.ndarray, lam: float, nu: float, rho: float) -> np.ndarray:
@@ -81,41 +81,18 @@ def fractional_riccati(
     return np.linspace(0.0, T, n + 1), h
 
 
-class RoughHeston:
-    """Rough Heston with initial variance ``v0``, long-run level ``theta``, mean-reversion
-    ``lam``, vol-of-vol ``nu``, correlation ``rho`` and Hurst exponent ``hurst``."""
+class FourierPricing:
+    """Lewis-formula vanilla pricing for models with ``cf(u, T, n_steps)`` and
+    ``expected_variance(T)``; shared by :class:`RoughHeston` and
+    :class:`~spxa.vol.lifted_heston.LiftedHeston`."""
 
-    def __init__(
-        self, v0: float, theta: float, lam: float, nu: float, rho: float, hurst: float
-    ) -> None:
-        if min(v0, theta) < 0 or lam < 0 or nu <= 0:
-            raise ValueError("need v0, theta, lam >= 0 and nu > 0")
-        if not -1 < rho < 1:
-            raise ValueError("rho must lie in (-1, 1)")
-        if not 0 < hurst <= 0.5:
-            raise ValueError("hurst must lie in (0, 1/2]")
-        self.v0, self.theta, self.lam = float(v0), float(theta), float(lam)
-        self.nu, self.rho, self.hurst = float(nu), float(rho), float(hurst)
-        self.alpha = self.hurst + 0.5
+    v0: float
 
-    def __repr__(self) -> str:
-        return (
-            f"RoughHeston(v0={self.v0}, theta={self.theta}, lam={self.lam}, nu={self.nu},"
-            f" rho={self.rho}, hurst={self.hurst})"
-        )
+    def cf(self, u: Any, T: float, n_steps: int = 200) -> np.ndarray:  # pragma: no cover
+        raise NotImplementedError
 
-    def log_cf(self, u: Any, T: float, n_steps: int = 200) -> np.ndarray:
-        r""":math:`\log E[e^{iuX_T}]` for an array of (complex) ``u``."""
-        t, h = fractional_riccati(u, T, self.alpha, self.lam, self.nu, self.rho, n_steps)
-        uu = np.atleast_1d(np.asarray(u, complex))[:, None]
-        f = _rhs(uu, h, self.lam, self.nu, self.rho)
-        return self.theta * self.lam * np.trapezoid(h, t, axis=1) + self.v0 * np.trapezoid(
-            f, t, axis=1
-        )
-
-    def cf(self, u: Any, T: float, n_steps: int = 200) -> np.ndarray:
-        r"""Characteristic function of :math:`X_T = \log(F_T/F_0)`."""
-        return np.exp(self.log_cf(u, T, n_steps))
+    def expected_variance(self, t: Any) -> Any:  # pragma: no cover
+        raise NotImplementedError
 
     def price(
         self,
@@ -173,6 +150,43 @@ class RoughHeston:
         kind = np.where(Ks >= F, "call", "put")
         vol = np.asarray(implied_black_volatility(otm, F, Ks, T, 1.0, kind), float)
         return float(vol) if vol.ndim == 0 else vol
+
+
+class RoughHeston(FourierPricing):
+    """Rough Heston with initial variance ``v0``, long-run level ``theta``, mean-reversion
+    ``lam``, vol-of-vol ``nu``, correlation ``rho`` and Hurst exponent ``hurst``."""
+
+    def __init__(
+        self, v0: float, theta: float, lam: float, nu: float, rho: float, hurst: float
+    ) -> None:
+        if min(v0, theta) < 0 or lam < 0 or nu <= 0:
+            raise ValueError("need v0, theta, lam >= 0 and nu > 0")
+        if not -1 < rho < 1:
+            raise ValueError("rho must lie in (-1, 1)")
+        if not 0 < hurst <= 0.5:
+            raise ValueError("hurst must lie in (0, 1/2]")
+        self.v0, self.theta, self.lam = float(v0), float(theta), float(lam)
+        self.nu, self.rho, self.hurst = float(nu), float(rho), float(hurst)
+        self.alpha = self.hurst + 0.5
+
+    def __repr__(self) -> str:
+        return (
+            f"RoughHeston(v0={self.v0}, theta={self.theta}, lam={self.lam}, nu={self.nu},"
+            f" rho={self.rho}, hurst={self.hurst})"
+        )
+
+    def log_cf(self, u: Any, T: float, n_steps: int = 200) -> np.ndarray:
+        r""":math:`\log E[e^{iuX_T}]` for an array of (complex) ``u``."""
+        t, h = fractional_riccati(u, T, self.alpha, self.lam, self.nu, self.rho, n_steps)
+        uu = np.atleast_1d(np.asarray(u, complex))[:, None]
+        f = _rhs(uu, h, self.lam, self.nu, self.rho)
+        return self.theta * self.lam * np.trapezoid(h, t, axis=1) + self.v0 * np.trapezoid(
+            f, t, axis=1
+        )
+
+    def cf(self, u: Any, T: float, n_steps: int = 200) -> np.ndarray:
+        r"""Characteristic function of :math:`X_T = \log(F_T/F_0)`."""
+        return np.exp(self.log_cf(u, T, n_steps))
 
     def expected_variance(self, t: Any) -> Any:
         r""":math:`E[V_t] = V_0 + (\theta - V_0)\,\bigl(1 - E_\alpha(-\lambda t^\alpha)\bigr)`,
