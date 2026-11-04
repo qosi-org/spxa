@@ -328,3 +328,12 @@ class TestLocalVolatility:
         h = 1e-4
         skew = (lin.local_vol_k(h, 1e-4) - lin.local_vol_k(-h, 1e-4)) / (2 * h)
         assert skew == pytest.approx(-0.2, rel=2e-4)
+
+    def test_diagnostics_flag_the_calendar_arbitrage(self) -> None:
+        fwd = EquityForward(100.0, 0.03, dividend_yield=0.01)
+        ss = v.SSVI(-0.7, v.PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t - 0.012 * t * t)
+        d = v.local_vol_diagnostics(
+            v.LocalVolSurface(v.VolSurface(ss, fwd)), 100.0, 0.03, 0.01, [100.0], [1.0, 2.0], n_t=40
+        )
+        assert d.first_undefined_time() == pytest.approx(1.7, abs=1e-12)
+        assert "first flags undefined points at $t = 1.7$" in DOC.read_text(encoding="utf-8")

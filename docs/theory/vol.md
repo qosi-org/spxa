@@ -17,7 +17,7 @@
 | Risk and persistence | `parallel_bump`, `skew_bump`, `expiry_buckets`, `bucketed_vega`, `dumps`, `loads` |
 | Local volatility | `dupire_local_variance`, `LocalVolSurface`, `LocalVolGrid`, `bbf_implied_vol` |
 | Andreasen–Huge | `AndreasenHugeSurface`, `calibrate_andreasen_huge`, `AndreasenHugeFit`, `andreasen_huge_grid`, `piecewise_constant_vol` |
-| Local-vol simulation | `local_vol_paths`, `LocalVolPaths` |
+| Local-vol simulation and checks | `local_vol_paths`, `LocalVolPaths`, `local_vol_diagnostics`, `LocalVolDiagnostics` |
 
 ---
 
@@ -249,3 +249,10 @@ The matrix is an M-matrix, so $c_i$ stays convex in $x$, within $(1 - x)^+ \le c
 ### 8.4 Monte Carlo and the forward smile
 
 `local_vol_paths` simulates $\log S$ by Euler steps on a `LocalVolGrid`, storing only the requested times. Forward-start options pay $(S_{T_2}/S_{T_1} - k)^+$ at $T_2$. Their value depends on the joint law of $S_{T_1}$ and $S_{T_2}$, which the surface does not determine. `LocalVolPaths.forward_start` prices them under local vol. Put–call parity holds path by path: call minus put pays $S_{T_2}/S_{T_1} - k$, and its expectation is $e^{-rT_2}\bigl(e^{(r - q)(T_2 - T_1)} - k\bigr)$. With a constant volatility the price is $e^{-rT_1}$ times a Black–Scholes call on unit spot, with strike $k$, expiry $T_2 - T_1$ and the same $r$ and $q$.
+
+### 8.5 Densities and diagnostics
+
+By Gyöngy's theorem, the marginal laws of the local-vol diffusion are those implied by the surface. `LocalVolSurface.density` solves the Fokker–Planck equation of $\log S$ with `FokkerPlanck1D` and returns the density of $y = \log(S_T/F_T)$. It matches the Breeden–Litzenberger density $e^{rT}\partial_{KK}C$ (§5), keeps unit mass, and keeps $E[S_T] = F_T$.
+
+`local_vol_diagnostics` combines these checks for a given surface. It maps where the local vol is undefined on a (moneyness, time) grid. If it is defined everywhere, it reprices a strike × expiry grid with one forward Dupire solve and reports the implied-vol errors, which shrink as the grid is refined. For an SSVI surface whose $\theta_t = 0.04t - 0.012t^2$ peaks at $t = 5/3$, a 40-step time grid to $t = 2$ first flags undefined points at $t = 1.7$.
+
