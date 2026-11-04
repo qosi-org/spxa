@@ -175,6 +175,16 @@ class VolSurface:
         r"""Black implied volatility :math:`\sigma(K, T)` (``T > 0``)."""
         return self.implied_vol_k(self.log_moneyness(K, T), T)
 
+    def local_vol_surface(self, **kwargs: Any) -> Any:
+        """Dupire local volatility of this surface (:class:`~spxa.vol.local_vol.LocalVolSurface`)."""
+        from spxa.vol.local_vol import LocalVolSurface
+
+        return LocalVolSurface(self, **kwargs)
+
+    def local_vol(self, K: Any, T: float) -> Any:
+        """Dupire local volatility at strike(s) ``K`` and maturity ``T > 0`` (``nan`` under arbitrage)."""
+        return self.local_vol_surface().local_vol(K, T)
+
     def price(self, K: Any, T: Any, option: Any = "call") -> Any:
         """Discounted Black price of a European option."""
         KK, TT = np.broadcast_arrays(np.asarray(K, float), np.asarray(T, float))

@@ -105,3 +105,14 @@ def test_callable_for_pde_solvers() -> None:
     S = np.array([80.0, 100.0, 120.0])
     assert lv(S, 0.5) == pytest.approx(lv.local_vol(S, 0.5))
     assert np.all(np.isfinite(lv(S, 0.0)))
+
+
+def test_surface_convenience() -> None:
+    surf = VolSurface(SS, FWD)
+    K = np.array([80.0, 100.0, 125.0])
+    assert surf.local_vol(K, 0.7) == pytest.approx(
+        LocalVolSurface(surf).local_vol(K, 0.7), rel=1e-15
+    )
+    lv = surf.local_vol_surface(dk=2e-3)
+    assert isinstance(lv, LocalVolSurface) and lv.dk == 2e-3
+    assert VolSurface.flat(0.3, FWD).local_vol(100.0, 2.0) == pytest.approx(0.3, abs=1e-10)
