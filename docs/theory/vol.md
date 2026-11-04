@@ -21,7 +21,8 @@
 | Stochastic local volatility | `Heston`, `slv_grid`, `LeverageSurface`, `slv_forward`, `calibrate_leverage`, `calibrate_leverage_particles`, `slv_paths`, `SLVPDE`, `calibrate_slv`, `as_local_vol` |
 | Rough Heston | `RoughHeston`, `fractional_riccati`, `LiftedHeston`, `lifted_weights`, `calibrate_rough_heston`, `RoughHestonFit` |
 | Rough Bergomi and VIX | `rbergomi_paths`, `RBergomiPaths`, `calibrate_rbergomi`, `RBergomiVIX`, `HestonVIX`, `VIX_WINDOW`, `calibrate_heston_joint`, `SmileQuote`, `VIXQuote` |
-| Martingale optimal transport | `DiscreteMarginal`, `marginal_from_calls`, `surface_marginals`, `mot_solve`, `mot_bounds`, `ot_solve`, `MOTResult`, `mot_sinkhorn`, `SinkhornResult` |
+| Martingale optimal transport | `DiscreteMarginal`, `marginal_from_calls`, `surface_marginals`, `mot_solve`, `mot_bounds`, `ot_solve`, `MOTResult`, `mot_sinkhorn`, `SinkhornResult`, `mot_multi` |
+| Robust pricing | `robust_bounds`, `forward_start_call`, `forward_start_straddle`, `static_replication`, `StaticReplication`, `superhedge_pnl` |
 
 ---
 
@@ -369,3 +370,11 @@ with no duality gap (Beiglböck, Henry-Labordère & Penkner): vanillas $\varphi$
 ### 11.3 Entropic transport
 
 Penalising the plan with $\varepsilon\,\mathrm{KL}(\pi \,\|\, \mu\otimes\nu)$ gives a Gibbs-form solution, $\pi_{ij} \propto \mu_i\nu_j\exp\bigl((c_{ij} - a_i - b_j - h_i(y_j - x_i))/\varepsilon\bigr)$. `mot_sinkhorn` finds the potentials by alternating closed-form log-sum-exp updates for $a$ and $b$ with Newton steps on each row's martingale condition for $h$, and decreases $\varepsilon$ geometrically with warm starts. Each iteration costs $O(nm)$ and needs no LP solver. The plans are feasible, so their values approach the LP bounds from inside. For the straddle above, the gap to the upper bound is $3.0 \times 10^{-3}$ at $\varepsilon = 10^{-2}$ and $2.0 \times 10^{-4}$ at $\varepsilon = 3 \times 10^{-3}$.
+
+### 11.4 Hedges as trades, and a backtest
+
+The dual potentials live on the grid. `static_replication` writes any grid-piecewise-linear function as cash, a forward and a strip of calls whose weights are the slope changes. The superhedge then becomes concrete trades: calls on $T_1$ and $T_2$ costing exactly the upper bound, plus $h(X)$ forwards entered at $T_1$ for free. `robust_bounds` runs the whole chain from a surface for forward-start payoffs (`forward_start_call`, `forward_start_straddle`). `superhedge_pnl` evaluates hedge minus payoff along simulated paths, interpolating the potentials linearly between nodes. Take Heston marginals ($v_0 = \theta = 0.04$, $\kappa = 1.5$, $\xi = 0.5$, $\rho = -0.7$) at $0.5$ and $1$ year on a 121-node grid, and a forward-start at-the-money call. The bounds are $[0.0205, 0.0606]$, and the Heston price on 50,000 paths is $0.0457$. Along those paths the superhedge never loses more than $0.0009$, under 4% of the grid spacing, an interpolation error between nodes. Its mean gain equals the gap between the bound and the model price. Paths must stay on the grid: on a coarser grid ending at $0.2$, the hedge has no instruments below the last strike and loses on paths that fall there.
+
+### 11.5 Several dates
+
+`mot_multi` bounds claims $c(X_1, \dots, X_n)$ over joint laws that are martingales in their own filtration, with one constraint per path prefix. A claim on two consecutive dates has the same bounds as the two-marginal problem, because any coupling extends by a Markov kernel. Intermediate smiles can only tighten a claim on the first and last dates. With flat 20% smiles at $0.5$, $1$ and $1.5$ years, a three-date Asian call on the average of $X_1, X_2, X_3$, struck at the forward, lies in $[0.0634, 0.0778]$, around the Black–Scholes value $0.0705$.

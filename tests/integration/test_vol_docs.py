@@ -527,3 +527,44 @@ class TestMartingaleTransport:
         hi = v.mot_solve(MU, NU, straddle).value
         gaps = [hi - v.mot_sinkhorn(MU, NU, straddle, eps=e).value for e in (1e-2, 3e-3)]
         assert [f"{g:.1e}" for g in gaps] == ["3.0e-03", "2.0e-04"]
+
+    def test_backtest_numbers(self) -> None:
+        from spxa.vol.marginals import marginal_from_calls
+
+        text = DOC.read_text(encoding="utf-8")
+        for s in (
+            "$[0.0205, 0.0606]$",
+            "on 50,000 paths is $0.0457$",
+            "more than $0.0009$, under 4%",
+        ):
+            assert s in text, s
+        heston, grid = v.Heston(0.04, 1.5, 0.04, 0.5, -0.7), np.linspace(0.05, 3.05, 121)
+        mu = marginal_from_calls(grid, np.asarray(heston.price(grid, 0.5), float))
+        nu = marginal_from_calls(
+            grid, np.asarray(heston.price(grid, 1.0), float), floor=mu.call(grid)
+        )
+        pay = v.forward_start_call(1.0)
+        lo, hi = v.mot_solve(mu, nu, pay, "min"), v.mot_solve(mu, nu, pay, "max")
+        assert (round(lo.value, 4), round(hi.value, 4)) == (0.0205, 0.0606)
+        paths = v.slv_paths(
+            heston, lambda y, t: np.ones_like(y), 1.0, 200, 50_000, record=(0.5, 1.0), seed=3
+        )
+        X, Y = np.exp(paths.at(0.5)[0]), np.exp(paths.at(1.0)[0])
+        assert round(float(pay(X, Y).mean()), 4) == 0.0457
+        worst = -float(v.superhedge_pnl(hi, pay, X, Y).min())
+        assert round(worst, 4) == 0.0009 and worst < 0.04 * (grid[1] - grid[0])
+
+    def test_asian_numbers(self) -> None:
+        from tests.unit.vol.test_mot_multi import MS
+
+        assert "$[0.0634, 0.0778]$, around the Black–Scholes value $0.0705$" in DOC.read_text(
+            encoding="utf-8"
+        )
+        asian = lambda a, b, c: np.maximum((a + b + c) / 3 - 1.0, 0.0)  # noqa: E731
+        lo, hi = v.mot_multi(MS, asian, "min")[0], v.mot_multi(MS, asian, "max")[0]
+        assert (round(lo, 4), round(hi, 4)) == (0.0634, 0.0778)
+        rng = np.random.default_rng(0)
+        S = np.exp(
+            np.cumsum(rng.standard_normal((400_000, 3)) * 0.2 * math.sqrt(0.5) - 0.01, axis=1)
+        )
+        assert round(float(np.maximum(S.mean(axis=1) - 1.0, 0.0).mean()), 4) == 0.0705
