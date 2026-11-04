@@ -329,7 +329,7 @@ The fractional kernel is a completely monotone function, so it is a mixture of e
 
 ### 10.3 Calibration
 
-`calibrate_rough_heston` fits $(v_0, \theta, \nu, \rho, H)$ to implied-volatility smiles by bounded least squares, with $\lambda$ fixed by default because it is weakly identified alongside $\theta$. Fitted to its own smiles at three expiries from $0.1$ to $1.5$ years, it recovers the parameters within $0.2\%$. The residual is set by the accuracy of the implied-volatility inversion inside the finite-difference Jacobian. Fixing $H = 1/2$ (classical Heston) on the same smiles leaves an RMSE above one vol point: no choice of $\nu$ and $\rho$ makes the skew steep at $0.1$ years and still right at $1.5$ years.
+`calibrate_rough_heston` fits $(v_0, \theta, \nu, \rho, H)$ to implied-volatility smiles by bounded least squares, with $\lambda$ fixed by default because it is weakly identified alongside $\theta$. Fitted to its own smiles at three expiries from $0.1$ to $1.5$ years, it recovers the parameters to a relative $10^{-8}$. That needs enough Adams steps (`n_steps`, 400 by default) for the explicit scheme to stay stable up to $U$. With 100 steps at $H = 0.08$, a third to a half of the Fourier nodes diverge and are dropped. The values just before them are inaccurate, so the model vols are not smooth enough in the parameters for a finite-difference Jacobian. Where the fit then stalls depends on floating-point rounding, and so on the platform. Fixing $H = 1/2$ (classical Heston) on the same smiles leaves an RMSE above one vol point: no choice of $\nu$ and $\rho$ makes the skew steep at $0.1$ years and still right at $1.5$ years.
 
 ### 10.4 Rough Bergomi
 

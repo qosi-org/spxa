@@ -55,7 +55,7 @@ def main() -> None:
     truth = RoughHeston(0.03, 0.05, 0.3, 0.4, -0.65, 0.08)
     ts = [0.1, 0.5, 1.5]
     ks = [np.exp(np.linspace(-2, 2, 9) * 0.2 * np.sqrt(T)) for T in ts]
-    vols = [truth.implied_vol(k, T, n_steps=100) for T, k in zip(ts, ks)]
+    vols = [truth.implied_vol(k, T, n_steps=400) for T, k in zip(ts, ks)]
     rough_fit = calibrate_rough_heston(ts, ks, vols, RoughHeston(0.04, 0.04, 0.3, 0.3, -0.5, 0.2))
     heston_fit = calibrate_rough_heston(
         ts,

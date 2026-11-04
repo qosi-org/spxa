@@ -419,10 +419,23 @@ class TestRoughVolatility:
         assert gaps == [1.34, 0.79, 0.46, 0.24]
 
     def test_calibration_claims(self) -> None:
-        # recovery within 0.2% (rtol 2e-3) and the H = 1/2 RMSE above 0.01: tests/unit/vol/test_rough_calibration.py
+        # recovery to rtol 1e-8 and the H = 1/2 RMSE above 0.01: tests/unit/vol/test_rough_calibration.py
         text = DOC.read_text(encoding="utf-8")
-        assert "recovers the parameters within $0.2\\%$" in text
+        assert "recovers the parameters to a relative $10^{-8}$" in text
+        assert "a third to a half of the Fourier nodes diverge" in text
         assert "leaves an RMSE above one vol point" in text
+
+    def test_unstable_nodes_at_100_and_400_steps(self) -> None:
+        import math
+
+        m = v.RoughHeston(0.03, 0.05, 0.3, 0.4, -0.65, 0.08)
+        x = np.polynomial.legendre.leggauss(256)[0]
+        for T in (0.1, 0.5, 1.5):
+            vbar = max(float(m.expected_variance(T)), m.v0, 1e-4)
+            u = 0.5 * 20.0 / math.sqrt(vbar * T) * (x + 1.0)
+            with np.errstate(all="ignore"):
+                bad = [int((~np.isfinite(m.cf(u - 0.5j, T, n))).sum()) for n in (100, 400)]
+            assert 256 / 3 <= bad[0] <= 256 / 2 and bad[1] == 0
 
     def test_rough_bergomi_numbers(self) -> None:
         text = DOC.read_text(encoding="utf-8")

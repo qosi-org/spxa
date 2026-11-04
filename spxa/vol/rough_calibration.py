@@ -64,9 +64,22 @@ def calibrate_rough_heston(
     free: Sequence[str] = ("v0", "theta", "nu", "rho", "hurst"),
     forwards: Optional[Sequence[float]] = None,
     weights: Optional[Sequence[Sequence[float]]] = None,
-    n_steps: int = 100,
+    n_steps: int = 400,
 ) -> RoughHestonFit:
-    """Fit the ``free`` parameters of ``initial`` to smiles ``vols[j]`` at ``strikes[j]``, ``maturities[j]``."""
+    """Fit the ``free`` parameters of ``initial`` to smiles ``vols[j]`` at ``strikes[j]``, ``maturities[j]``.
+
+    ``n_steps`` is the number of fractional Adams steps per characteristic
+    function. It must keep the explicit scheme stable across the whole
+    Fourier range of :meth:`RoughHeston.price`. With too few steps the
+    scheme diverges before :math:`U` at small :math:`H`. The overflowing
+    nodes are dropped and the finite values just before them are
+    inaccurate, so the model vols are not smooth enough in the parameters
+    for a finite-difference Jacobian. Where the fit then stops depends on
+    floating-point rounding.
+    At :math:`H = 0.08` and expiries of 0.1 to 1.5 years, 100 steps leave a
+    third to a half of the nodes unstable, while the default of 400 leaves
+    none.
+    """
     bad = set(free) - set(_NAMES)
     if bad:
         raise ValueError(f"unknown parameters {sorted(bad)}")
