@@ -114,7 +114,11 @@ Black-Karasinski Monte Carlo
     :func:`black_karasinski_paths`: exact OU simulation on the tree-fitted drift.
 CIR++
     :class:`CIRPlusPlus`: shifted CIR fitted to a curve, with bond options and caps in closed form.
+Short-rate model interface
+    :class:`ShortRateModel`: the protocol shared by HW, G2++ and CIR++; :func:`model_implied_vols`.
 """
+
+from spxa.rates.short_rate import ShortRateModel, model_implied_vols
 
 from spxa.rates.cir_pp import CIRPlusPlus
 
@@ -477,4 +481,6 @@ __all__ = [
     "BlackKarasinskiPaths",
     "black_karasinski_paths",
     "CIRPlusPlus",
+    "ShortRateModel",
+    "model_implied_vols",
 ]

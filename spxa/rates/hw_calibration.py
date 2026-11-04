@@ -33,14 +33,14 @@ from spxa.rates.swaptions import Swaption
 __all__ = ["HullWhiteCalibration", "calibrate_hull_white", "market_prices", "model_price"]
 
 
-def model_price(model: HullWhite, inst: Any, projection: Optional[YieldCurve] = None) -> float:
-    """Price of a swaption, cap/floor or caplet under ``model``."""
+def model_price(model: Any, inst: Any, projection: Optional[YieldCurve] = None) -> float:
+    """Price of a swaption, cap/floor or caplet under ``model`` (any :class:`~spxa.rates.short_rate.ShortRateModel`)."""
     if isinstance(inst, Swaption):
-        return model.swaption(inst, projection)
+        return float(model.swaption(inst, projection))
     if isinstance(inst, CapFloor):
-        return model.cap(inst, projection)
+        return float(model.cap(inst, projection))
     if isinstance(inst, Caplet):
-        return model.caplet(inst, projection)
+        return float(model.caplet(inst, projection))
     raise TypeError(f"cannot price {type(inst).__name__}")
 
 
