@@ -105,7 +105,14 @@ Discrete marginals
     :func:`marginal_from_calls`: laws on a strike grid and the convex order.
 Martingale optimal transport
     :func:`mot_bounds`: model-free bounds by linear programming, with dual superhedges.
+Entropic MOT
+    :func:`mot_sinkhorn`: Sinkhorn iterations with a martingale constraint.
 """
+
+from spxa.vol.mot_sinkhorn import (
+    SinkhornResult,
+    mot_sinkhorn,
+)
 
 from spxa.vol.mot import (
     MOTResult,
@@ -426,4 +433,6 @@ __all__ = [
     "mot_bounds",
     "mot_solve",
     "ot_solve",
+    "SinkhornResult",
+    "mot_sinkhorn",
 ]
