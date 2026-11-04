@@ -82,7 +82,11 @@ Arbitrage-free SABR
     :class:`ArbitrageFreeSABR` (Hagan et al. 2014 density PDE, Lawson–Swayne steps) and :class:`SABRDensity`.
 SABR Monte Carlo
     :func:`sabr_paths` (exact volatility, Euler forward, absorption with a Brownian bridge for beta = 0).
+Caplet stripping
+    :func:`strip_caplet_vols` bootstraps a piecewise-constant :class:`CapletVolCurve` from flat cap quotes.
 """
+
+from spxa.rates.stripping import CapletVolCurve, strip_caplet_vols
 
 from spxa.rates.sabr_mc import SABRPaths, sabr_paths
 
@@ -382,4 +386,6 @@ __all__ = [
     "SABRDensity",
     "SABRPaths",
     "sabr_paths",
+    "CapletVolCurve",
+    "strip_caplet_vols",
 ]
