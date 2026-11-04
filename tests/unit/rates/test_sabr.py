@@ -76,3 +76,42 @@ def test_shift_translates_the_smile() -> None:
         assert c - p == pytest.approx(0.95 * (Fn - Kn), abs=1e-15)
     with pytest.raises(ValueError):
         sh.price(Fn, Kn, 2.0, vol="cev")
+
+
+def test_obloj_short_expiry_limit() -> None:
+    Kw = F * np.exp(np.linspace(-1.0, 1.0, 9))
+    # nu = 0 (CEV): the T -> 0 implied vol is the harmonic mean of the local vol alpha u^(beta - 1)
+    for beta in (0.0, 0.3, 0.7):
+        ob = sabr_lognormal_vol(F, Kw, 0.0, 0.035, beta, -0.3, 0.0, method="obloj")
+        for k, v in zip(Kw, ob):
+            dist = quad(lambda u: u**-beta / 0.035, k, F, epsabs=0.0, epsrel=1e-13)[0]
+            expect = 0.035 * F ** (beta - 1) if k == F else np.log(F / k) / dist
+            assert v == pytest.approx(expect, rel=1e-11)
+    # beta = 1: z = nu ell / alpha
+    ell = np.log(F / Kw)
+    z = 0.4 * ell / 0.2
+    corr = -0.3 * 0.4 * 0.2 / 4 + (2 - 3 * 0.09) / 24 * 0.16
+    expect = 0.2 * z_over_chi(z, -0.3) * (1 + corr * 1.0)
+    assert sabr_lognormal_vol(F, Kw, 1.0, 0.2, 1.0, -0.3, 0.4, method="obloj") == pytest.approx(
+        expect, rel=1e-13
+    )
+
+
+def test_obloj_against_hagan() -> None:
+    for T in (0.0, 1.0, 10.0):
+        assert M.lognormal_vol(F, F, T, "obloj") == pytest.approx(
+            M.lognormal_vol(F, F, T), rel=1e-14
+        )
+        near = F * np.exp(np.array([-0.05, 0.05]))
+        assert M.lognormal_vol(F, near, T, "obloj") == pytest.approx(
+            M.lognormal_vol(F, near, T), rel=1e-5
+        )
+    far = F * np.exp(np.array([-1.0, 1.0]))
+    gap = np.abs(M.lognormal_vol(F, far, 0.0, "obloj") - M.lognormal_vol(F, far, 0.0))
+    assert np.all(gap > 1e-4)
+    sh = SABR(0.035, 0.5, -0.3, 0.4, shift=0.01)
+    assert sh.lognormal_vol(-0.005, 0.0, 2.0, "obloj") == pytest.approx(
+        M.lognormal_vol(0.005, 0.01, 2.0, "obloj"), rel=1e-14
+    )
+    with pytest.raises(ValueError):
+        M.lognormal_vol(F, F, 1.0, "west")

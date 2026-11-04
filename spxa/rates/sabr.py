@@ -71,17 +71,51 @@ def _parts(F: Any, K: Any, alpha: float, beta: float, rho: float, nu: float, shi
     return fk, ell, np.asarray(zc, float)
 
 
+def _x_over_expm1(x: np.ndarray) -> np.ndarray:
+    small = np.abs(x) < 1e-8
+    xs = np.where(small, 1.0, x)
+    return np.where(small, 1.0 - 0.5 * x, xs / np.expm1(xs))
+
+
 def sabr_lognormal_vol(
-    F: Any, K: Any, T: Any, alpha: float, beta: float, rho: float, nu: float, shift: float = 0.0
+    F: Any,
+    K: Any,
+    T: Any,
+    alpha: float,
+    beta: float,
+    rho: float,
+    nu: float,
+    shift: float = 0.0,
+    method: str = "hagan",
 ) -> Any:
-    """Hagan's Black volatility (of the shifted forward)."""
+    r"""Black volatility (of the shifted forward) by Hagan's or Obłój's formula.
+
+    ``method='obloj'`` (Obłój 2008, *Fine-tune your smile*) keeps Hagan's
+    first-order term but replaces the leading term by
+    :math:`\nu\ell/\chi(z_O)` with
+    :math:`z_O = \nu (F^{1-\beta} - K^{1-\beta})/(\alpha(1-\beta))`
+    (:math:`\nu\ell/\alpha` for :math:`\beta = 1`). That leading term is the
+    exact short-expiry limit of the implied volatility (the
+    Berestycki–Busca–Florent geodesic distance), which Hagan's
+    :math:`\ell`-series only approximates away from the money.
+    """
     _check(alpha, beta, rho, nu)
+    if method not in ("hagan", "obloj"):
+        raise ValueError("method must be 'hagan' or 'obloj'")
     fk, ell, zc = _parts(F, K, alpha, beta, rho, nu, shift)
     b = 1.0 - beta
-    den = fk ** (b / 2) * (1 + b * b / 24 * ell**2 + b**4 / 1920 * ell**4)
     corr = b * b * alpha**2 / (24 * fk**b) + rho * beta * nu * alpha / (4 * fk ** (b / 2))
     corr = corr + (2 - 3 * rho * rho) / 24 * nu * nu
-    out = alpha / den * zc * (1 + corr * np.asarray(T, float))
+    if method == "hagan":
+        den = fk ** (b / 2) * (1 + b * b / 24 * ell**2 + b**4 / 1920 * ell**4)
+        lead = alpha / den * zc
+    else:
+        Ks = np.asarray(K, float) + shift
+        # F^b - K^b = K^b expm1(b ell); alpha b ell / (F^b - K^b) -> alpha / K^b expm1 ratio
+        ratio = alpha * _x_over_expm1(b * ell) / Ks**b
+        z = nu * ell / ratio
+        lead = ratio * np.asarray(z_over_chi(z, rho), float)
+    out = lead * (1 + corr * np.asarray(T, float))
     return float(out) if np.ndim(out) == 0 else out
 
 
@@ -115,8 +149,10 @@ class SABR:
     def __post_init__(self) -> None:
         _check(self.alpha, self.beta, self.rho, self.nu)
 
-    def lognormal_vol(self, F: Any, K: Any, T: Any) -> Any:
-        return sabr_lognormal_vol(F, K, T, self.alpha, self.beta, self.rho, self.nu, self.shift)
+    def lognormal_vol(self, F: Any, K: Any, T: Any, method: str = "hagan") -> Any:
+        return sabr_lognormal_vol(
+            F, K, T, self.alpha, self.beta, self.rho, self.nu, self.shift, method
+        )
 
     def normal_vol(self, F: Any, K: Any, T: Any) -> Any:
         return sabr_normal_vol(F, K, T, self.alpha, self.beta, self.rho, self.nu, self.shift)
