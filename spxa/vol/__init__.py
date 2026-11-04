@@ -60,7 +60,11 @@ Arbitrage repair
 Implied distribution
     :class:`ImpliedDistribution`: density, cdf, digitals, moments, quantiles
     and samples of :math:`\log(S_T/F_T)` from a slice.
+Local volatility
+    :class:`LocalVolSurface` and :func:`dupire_local_variance`: Dupire's formula in total-variance form.
 """
+
+from spxa.vol.local_vol import LocalVolSurface, dupire_local_variance
 
 from spxa.vol.arbitrage import (
     ButterflyCheck,
@@ -222,4 +226,6 @@ __all__ = [
     "from_dict",
     "dumps",
     "loads",
+    "LocalVolSurface",
+    "dupire_local_variance",
 ]
