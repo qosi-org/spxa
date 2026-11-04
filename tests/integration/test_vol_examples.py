@@ -51,3 +51,14 @@ def test_local_vol_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "American 7.3705, European 7.1989" in out
     assert "= vanilla 9.1594: True" in out
     assert "nan" not in out and "False" not in out
+
+
+def test_slv_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "vol_slv_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "local vol DO(85): 8.1806" in out
+    assert "0.0             1.25         1.0705    8.1849    5.7989" in out
+    assert "1.0             3.46         1.2893    8.1029    6.3308" in out
+    assert "UO(130): PDE 6.0128" in out
+    assert "PDE within 3 standard errors: True" in out
+    assert "max gap 1.38%" in out
