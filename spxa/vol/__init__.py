@@ -114,10 +114,7 @@ from spxa.vol.mot import (
     ot_solve,
 )
 
-from spxa.vol.marginals import (
-    DiscreteMarginal,
-    marginal_from_calls,
-)
+from spxa.vol.marginals import DiscreteMarginal, marginal_from_calls, surface_marginals
 
 from spxa.vol.joint_calibration import (
     JointFit,
@@ -424,6 +421,7 @@ __all__ = [
     "calibrate_heston_joint",
     "DiscreteMarginal",
     "marginal_from_calls",
+    "surface_marginals",
     "MOTResult",
     "mot_bounds",
     "mot_solve",

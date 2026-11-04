@@ -52,3 +52,35 @@ def test_validation() -> None:
         marginal_from_calls(np.array([0.5, 1.0, 2.0]), np.array([0.5, 0.1, 0.0]))  # uneven grid
     with pytest.raises(ValueError):
         marginal_from_calls(np.linspace(1.0, 2.0, 5), np.zeros(5))  # forward on the edge
+
+
+def test_surface_marginals_from_ssvi() -> None:
+    import spxa.vol as v
+    from spxa.market import EquityForward
+    from spxa.vol.conventions import normalised_call_from_total_variance
+    from spxa.vol.marginals import surface_marginals
+
+    fwd = EquityForward(100.0, 0.03, dividend_yield=0.01)
+    surf = v.VolSurface(
+        v.SSVI(-0.7, v.PowerLawPhi(1.1, 0.4), lambda t: 0.04 * t + 0.003 * t * t), fwd
+    )
+    k = np.linspace(0.02, 3.02, 101)
+    ms = surface_marginals(surf, [0.5, 1.0, 1.5], k)
+    assert all(m.mean == pytest.approx(1.0, abs=1e-14) for m in ms)
+    assert ms[0].precedes(ms[1]) and ms[1].precedes(ms[2])
+    for m, T in zip(ms, (0.5, 1.0, 1.5)):
+        c = normalised_call_from_total_variance(np.log(k), surf.total_variance(np.log(k), T))
+        assert np.abs(m.call(k) - c).max() < 1e-6  # the truncated tails, re-tilted
+    # the normalised calls are the surface's undiscounted prices over the forward
+    F, df = fwd.forward(1.0), fwd.discount(1.0)
+    assert surf.price(F * k[30], 1.0) / (F * df) == pytest.approx(ms[1].call(k[30]), abs=1e-8)
+    # a grid that cuts the fat left tail loses exactly the truncated put value
+    narrow = np.linspace(0.2, 2.6, 49)
+    lost = (
+        normalised_call_from_total_variance(np.log(0.2), surf.total_variance(np.log(0.2), 1.0))
+        - 0.8
+    )
+    assert surface_marginals(surf, [0.5, 1.0], narrow)[1].call(0.2) == pytest.approx(0.8, abs=1e-15)
+    assert lost == pytest.approx(4.76e-5, abs=1e-7)
+    with pytest.raises(ValueError):
+        surface_marginals(surf, [1.0, 0.5], k)

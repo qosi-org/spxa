@@ -17,7 +17,7 @@ from typing import Any, Callable
 import numpy as np
 from scipy.optimize import brentq
 
-__all__ = ["DiscreteMarginal", "marginal_from_calls"]
+__all__ = ["DiscreteMarginal", "marginal_from_calls", "surface_marginals"]
 
 
 @dataclass(frozen=True)
@@ -95,3 +95,27 @@ def marginal_from_calls(strikes: Any, calls: Any, floor: Any = None) -> Discrete
     p = tilt(beta)
     p *= p > 1e-300
     return DiscreteMarginal(k, p / p.sum())
+
+
+def surface_marginals(surface: Any, expiries: Any, strikes: Any) -> list[DiscreteMarginal]:
+    r"""Laws of :math:`S_{T_i}/F_{T_i}` implied by a surface, in convex order.
+
+    ``surface`` is anything with ``total_variance(k, T)`` in log-forward moneyness
+    (a :class:`~spxa.vol.surface.VolSurface`, an SSVI or eSSVI surface).
+    ``strikes`` is an even grid in forward units containing 1. Each expiry is
+    floored by the previous one, so the result is ready for
+    :func:`~spxa.vol.mot.mot_solve`.
+    """
+    from spxa.vol.conventions import normalised_call_from_total_variance
+
+    k = np.asarray(strikes, float)
+    Ts = [float(T) for T in expiries]
+    if any(b <= a for a, b in zip(Ts, Ts[1:])) or Ts[0] <= 0:
+        raise ValueError("expiries must be positive and increasing")
+    out: list[DiscreteMarginal] = []
+    for T in Ts:
+        w = np.asarray(surface.total_variance(np.log(k), T), float)
+        calls = np.asarray(normalised_call_from_total_variance(np.log(k), w), float)
+        floor = out[-1].call(k) if out else None
+        out.append(marginal_from_calls(k, calls, floor=floor))
+    return out
