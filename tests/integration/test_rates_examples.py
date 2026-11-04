@@ -18,3 +18,15 @@ def test_curve_example(capsys: pytest.CaptureFixture[str]) -> None:
     assert "agree to second order (< 1e-6): True" in out
     assert "nodes before 10Y unmoved: True" in out
     assert "nan" not in out and ": False" not in out
+
+
+def test_vol_example(capsys: pytest.CaptureFixture[str]) -> None:
+    runpy.run_path(str(EXAMPLES / "rates_vol_example.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "caps reprice from stripped vols (< 1e-10): True" in out
+    assert "SABR smile recovered (rmse < 1e-10): True" in out
+    assert "Hagan density negative near zero: True" in out
+    assert "PDE mass 1.000000000000, absorbed at zero 8.74%" in out
+    assert "cube at 5Y x 10Y: alpha 0.0350, rho -0.2000" in out
+    assert "smile lowers the adjustment (skewed right wing): True" in out
+    assert "nan" not in out and ": False" not in out
