@@ -33,7 +33,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["LocalVolGrid", "LocalVolSurface", "dupire_local_variance"]
+__all__ = ["LocalVolGrid", "LocalVolSurface", "bbf_implied_vol", "dupire_local_variance"]
 
 
 def dupire_local_variance(y: Any, w: Any, w_y: Any, w_yy: Any, w_T: Any) -> Any:
@@ -241,3 +241,29 @@ class LocalVolGrid:
         with np.errstate(divide="ignore"):
             y = np.log(np.maximum(np.asarray(S, float), 0.0) / F)
         return self.local_vol_k(np.maximum(y, self.ys[0]), t)
+
+
+def bbf_implied_vol(local_vol_k: Any, k: Any, n: int = 401) -> Any:
+    r"""Short-expiry implied volatility from a local volatility (Berestycki–Busca–Florent).
+
+    As :math:`T \to 0` the implied volatility at log-moneyness :math:`k` is
+    the harmonic mean of the local volatility between the money and the
+    strike:
+
+    .. math:: \sigma_{\mathrm{imp}}(k) = \Bigl(\frac1k\int_0^k \frac{dy}{\sigma_{\mathrm{loc}}(y)}\Bigr)^{-1},
+
+    with :math:`\sigma_{\mathrm{imp}}(0) = \sigma_{\mathrm{loc}}(0)`.
+    ``local_vol_k`` is a vectorised function of :math:`y`. The integral uses
+    Gauss–Legendre quadrature with ``n`` nodes.
+    """
+    kk = np.atleast_1d(np.asarray(k, float))
+    u, wts = np.polynomial.legendre.leggauss(n)
+    out = np.empty(kk.shape)
+    for i, kv in enumerate(kk):
+        if kv == 0.0:
+            out[i] = float(np.asarray(local_vol_k(np.array([0.0])), float)[0])
+            continue
+        y = 0.5 * kv * (u + 1.0)
+        mean_inv = 0.5 * float(np.sum(wts / np.asarray(local_vol_k(y), float)))
+        out[i] = 1.0 / mean_inv
+    return float(out[0]) if np.ndim(k) == 0 else out
