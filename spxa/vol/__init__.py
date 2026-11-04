@@ -73,7 +73,17 @@ Local-vol diagnostics
     :func:`local_vol_diagnostics`: Dupire-PDE repricing errors and the arbitrage (undefined) region of a local-vol surface.
 Heston
     :class:`Heston`: forward-measure Heston with Lewis pricing, the SV leg of SLV.
+SLV grids
+    :class:`SLVGrid`, :func:`slv_grid` and :class:`LeverageSurface` for stochastic local volatility.
 """
+
+from spxa.vol.slv import (
+    LeverageSurface,
+    SLVGrid,
+    slv_grid,
+    variance_quantile,
+    variance_std,
+)
 
 from spxa.vol.heston import Heston
 
@@ -270,4 +280,9 @@ __all__ = [
     "LocalVolDiagnostics",
     "local_vol_diagnostics",
     "Heston",
+    "LeverageSurface",
+    "SLVGrid",
+    "slv_grid",
+    "variance_quantile",
+    "variance_std",
 ]
