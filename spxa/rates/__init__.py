@@ -120,7 +120,11 @@ Gaussian HJM
     :class:`GaussianHJM`: multi-factor Gaussian HJM with closed-form bond options and caps.
 HJM Monte Carlo
     :func:`hjm_paths`: martingale-exact simulation of deflated bonds under Gaussian HJM.
+Cheyette
+    :class:`Cheyette`: quasi-Gaussian short rate with linear local volatility.
 """
+
+from spxa.rates.cheyette import Cheyette
 
 from spxa.rates.hjm_mc import HJMPaths, hjm_paths
 
@@ -496,4 +500,5 @@ __all__ = [
     "hump_vol",
     "HJMPaths",
     "hjm_paths",
+    "Cheyette",
 ]
